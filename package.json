@@ -1,0 +1,18 @@
+{
+  "name": "bangla-ai-server",
+  "version": "1.0.0",
+  "description": "Bangla AI backend: keeps the OmniRoute key on the server, serves the app config and proxies chats.",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "pg": "^8.23.1"
+  },
+  "license": "MIT"
+}

@@ -1,4 +1,5 @@
-# Render Blueprint: one free Node web service and one free Postgres database.
+# Render Blueprint: one free Node web service. The config is stored in a free
+# Neon Postgres (set DATABASE_URL); see README.md for why not Render's own.
 # Render dashboard > New > Blueprint > pick this repo.
 services:
   - type: web
@@ -15,10 +16,12 @@ services:
       # Admin dashboard password. Render asks for it when you apply the Blueprint.
       - key: ADMIN_PASSWORD
         sync: false
+      # Neon connection string (postgresql://...neon.tech/neondb?sslmode=verify-full)
       - key: DATABASE_URL
-        fromDatabase:
-          name: bangla-ai-db
-          property: connectionString
+        sync: false
+      # Random text that signs admin sign-in tokens.
+      - key: TOKEN_SECRET
+        generateValue: true
       # Initial values only: after the first start, edit them in the admin app.
       - key: OMNIROUTE_BASE_URL
         sync: false
@@ -35,8 +38,3 @@ services:
       - key: VOICE_PITCH
         value: "1.0"
 
-databases:
-  - name: bangla-ai-db
-    plan: free
-    databaseName: bangla_ai
-    user: bangla_ai

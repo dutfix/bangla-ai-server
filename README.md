@@ -25,32 +25,33 @@ lines (reply in Bangla, short spoken replies in calls).
 ## Deploy on Render (free)
 
 1. Push this folder to a GitHub repo (this repo).
-2. In Render: **New > Blueprint**, pick the repo. Render reads `render.yaml`
-   and creates:
-   - `bangla-ai-server`, a free Node web service, and
-   - `bangla-ai-db`, a free Postgres database, wired in as `DATABASE_URL`.
-3. Render asks for the values marked `sync: false`:
+2. Create a free Postgres database on Neon (neon.tech, sign in with GitHub),
+   open the project, click **Connect**, and copy the connection string. Change
+   `sslmode=require&channel_binding=require` at the end to `sslmode=verify-full`.
+3. In Render: **New > Blueprint**, pick the repo. Render reads `render.yaml`
+   and creates `bangla-ai-server`, a free Node web service.
+4. Render asks for the values marked `sync: false`:
+   - `DATABASE_URL`: the Neon connection string from step 2.
    - `ADMIN_PASSWORD`: the password for the admin app. Use a long one.
    - `OMNIROUTE_BASE_URL`, `OMNIROUTE_API_KEY`: optional starting values. You
      can leave them empty and set them in the admin app instead.
-4. Click **Apply**. The first build takes a few minutes.
-5. Open `https://<your-service>.onrender.com/health`. It should show
+5. Click **Apply**. The first build takes a few minutes.
+6. Open `https://<your-service>.onrender.com/health`. It should show
    `"ok":true` and `"storeOk":true`.
-6. Put that address in the admin app at first launch, sign in with
+7. Put that address in the admin app at first launch, sign in with
    `ADMIN_PASSWORD`, and set the OmniRoute address, key, models and voice.
 
-Without a Blueprint: create the Postgres database first (New > Postgres,
-Free), then New > Web Service from this repo with build command
-`npm install --omit=dev`, start command `node server.js`, health check path
-`/health`, and the environment variables below. Set `DATABASE_URL` to the
-database's **Internal Database URL**.
+Without a Blueprint: New > Web Service from this repo, Free instance, build
+command `npm install --omit=dev`, start command `node server.js`, health check
+path `/health`, and the environment variables below.
 
 ### Environment variables
 
 | Name | Needed | Meaning |
 | --- | --- | --- |
 | `ADMIN_PASSWORD` | yes | admin app password; changing it signs the admin out |
-| `DATABASE_URL` | yes on Render | Postgres connection string |
+| `DATABASE_URL` | yes on Render | Postgres connection string (Neon) |
+| `CONFIG_TABLE` | no | table name, default `bangla_ai_config` |
 | `OMNIROUTE_BASE_URL` | no | first value of the OmniRoute address, e.g. `https://host/v1` |
 | `OMNIROUTE_API_KEY` | no | first value of the key |
 | `MODELS` | no | comma list, default `auto,auto/fast` |
@@ -73,17 +74,13 @@ config lives in the database, and the admin app changes it there.
   UptimeRobot or cron-job.org) call `https://<your-service>.onrender.com/health`
   every 10 minutes. Free instance hours are limited per month, and one service
   that is always awake uses most of them.
-- **The free Postgres database expires.** Render's free Postgres is meant for
-  trying things out: it expires about a month after you create it, and is
-  deleted after a short grace period unless you upgrade. Before then, either
-  upgrade it to a paid plan, or move to a free Postgres that does not expire,
-  such as Neon (neon.tech):
-  1. Create a Neon project and copy its connection string
-     (`postgresql://...neon.tech/...?sslmode=require`).
-  2. In Render, set the web service's `DATABASE_URL` to that string and save.
-  3. Open the admin app and press Save once, so the config is written to Neon.
-  Neon's free databases pause when idle and wake in about a second, which is
-  fine for this server.
+- **Why Neon and not Render's Postgres.** Render's free Postgres expires 30
+  days after you create it (then a 14-day grace period before deletion), and a
+  workspace can have only one free database. Neon's free plan does not expire
+  (0.5 GB storage, 100 compute hours a month per project). Its database pauses
+  when idle and wakes in about a second, which is fine for this server. Any
+  Postgres works: to move, set `DATABASE_URL` to the new one and press Save once
+  in the admin app so the config is written there.
 - **If the database is unreachable,** the server still starts with the
   environment values (so `/health` and the app keep working), keeps retrying
   every 15 seconds, and the admin app shows that saving failed.

@@ -32,6 +32,10 @@ const TOKEN_HOURS = 12;
 // Optional shared key the main app sends in X-App-Key, to keep casual
 // strangers off the chat proxy. Not a real secret: it ships in the APK.
 const APP_KEY = env.APP_KEY || '';
+// Table name, so the server can share a database with other apps safely.
+const CONFIG_TABLE = /^[a-z_][a-z0-9_]{0,62}$/.test(env.CONFIG_TABLE || '')
+  ? env.CONFIG_TABLE
+  : 'bangla_ai_config';
 
 const LIMITS = {
   bodyBytes: 256 * 1024,
@@ -177,16 +181,16 @@ class PgStore {
   }
   async init() {
     await this.pool.query(
-      'CREATE TABLE IF NOT EXISTS app_config (id INT PRIMARY KEY, data JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())',
+      `CREATE TABLE IF NOT EXISTS ${CONFIG_TABLE} (id INT PRIMARY KEY, data JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`,
     );
   }
   async load() {
-    const r = await this.pool.query('SELECT data FROM app_config WHERE id = 1');
+    const r = await this.pool.query(`SELECT data FROM ${CONFIG_TABLE} WHERE id = 1`);
     return r.rows[0] ? r.rows[0].data : null;
   }
   async save(cfg) {
     await this.pool.query(
-      'INSERT INTO app_config (id, data, updated_at) VALUES (1, $1, now()) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = now()',
+      `INSERT INTO ${CONFIG_TABLE} (id, data, updated_at) VALUES (1, $1, now()) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = now()`,
       [cfg],
     );
   }

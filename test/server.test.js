@@ -10,7 +10,8 @@ const path = require('node:path');
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bai-'));
 process.env.CONFIG_FILE = path.join(dir, 'config.json');
-process.env.ADMIN_PASSWORD = 'test-pass';
+// Trailing space and a decomposed Bangla vowel sign, as a web form might store it.
+process.env.ADMIN_PASSWORD = 'test-pass\u09CB ';
 process.env.MODELS = 'auto,auto/fast';
 delete process.env.DATABASE_URL;
 
@@ -75,7 +76,7 @@ test('public config has no key and is not ready yet', async () => {
 
 test('admin login: wrong then right', async () => {
   assert.equal((await j('/admin/login', { method: 'POST', body: { password: 'nope' } })).status, 401);
-  const r = await j('/admin/login', { method: 'POST', body: { password: 'test-pass' } });
+  const r = await j('/admin/login', { method: 'POST', body: { password: ' test-pass\u09C7\u09BE\n' } });
   assert.equal(r.status, 200);
   token = r.body.token;
   assert.ok(token);
@@ -178,4 +179,14 @@ test('disabled switch blocks chat with the message', async () => {
   assert.equal(r.body.error.message, 'বন্ধ');
   assert.equal((await j('/v1/config')).body.enabled, false);
   await j('/admin/config', { method: 'PUT', headers: auth, body: { enabled: true } });
+});
+
+test('admin login: wrong password says so, too many fails are limited', async () => {
+  const bad1 = await j('/admin/login', { method: 'POST', body: { password: 'TEST-PASS' } });
+  assert.equal(bad1.status, 401);
+  assert.equal(bad1.body.error.code, 'wrong_password');
+  let last;
+  for (let i = 0; i < 10; i++) last = await j('/admin/login', { method: 'POST', body: { password: 'x' } });
+  assert.equal(last.status, 429);
+  assert.equal(last.body.error.code, 'rate_limited');
 });

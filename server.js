@@ -22,7 +22,22 @@ const path = require('node:path');
 
 const env = process.env;
 const PORT = Number(env.PORT || 10000);
-const ADMIN_PASSWORD = env.ADMIN_PASSWORD || '';
+const VERSION = '1.0.1';
+
+/**
+ * Passwords are compared after the same clean-up on both sides: Unicode NFC
+ * (so Bangla typed on different keyboards matches), no zero-width or
+ * byte-order characters, and no spaces or line breaks at either end (a paste
+ * into a web form or a phone keyboard's suggestion often adds one).
+ */
+function normalizePassword(s) {
+  return String(s == null ? '' : s)
+    .normalize('NFC')
+    .replace(/[\u200B\u200C\u200D\u2060\uFEFF]/g, '')
+    .trim();
+}
+
+const ADMIN_PASSWORD = normalizePassword(env.ADMIN_PASSWORD);
 // Signs admin tokens. Derived from the password when not set, so changing
 // the password signs everyone out.
 const TOKEN_SECRET =
@@ -343,15 +358,33 @@ function safeEqual(a, b) {
   return crypto.timingSafeEqual(ha, hb);
 }
 
-// Login attempts per IP: at most 8 per 10 minutes.
+// Failed login attempts per IP: at most 10 per 10 minutes. A successful
+// sign-in clears the count.
+const LOGIN_MAX_FAILS = 10;
 const attempts = new Map();
-function loginAllowed(ip) {
+function recentFails(ip) {
   const now = Date.now();
   const list = (attempts.get(ip) || []).filter((t) => now - t < 10 * 60e3);
   attempts.set(ip, list);
-  if (list.length >= 8) return false;
-  list.push(now);
-  return true;
+  return list;
+}
+function loginAllowed(ip) {
+  return recentFails(ip).length < LOGIN_MAX_FAILS;
+}
+function loginFailed(ip) {
+  recentFails(ip).push(Date.now());
+}
+function loginSucceeded(ip) {
+  attempts.delete(ip);
+}
+
+/** Why a password did not match, without logging the password itself. */
+function mismatchHint(got) {
+  const want = ADMIN_PASSWORD;
+  const parts = [`got ${[...got].length} chars, expected ${[...want].length}`];
+  if (got.toLowerCase() === want.toLowerCase()) parts.push('matches if capital letters are ignored');
+  else if (got.replace(/\s+/g, '') === want.replace(/\s+/g, '')) parts.push('matches if spaces are ignored');
+  return parts.join('; ');
 }
 
 function clientIp(req) {
@@ -510,7 +543,14 @@ async function route(req, res) {
     return res.end();
   }
   if (p === '/health' && (m === 'GET' || m === 'HEAD')) {
-    return send(res, 200, { ok: true, store: store.kind, storeOk, time: new Date().toISOString() });
+    return send(res, 200, {
+      ok: true,
+      version: VERSION,
+      store: store.kind,
+      storeOk,
+      adminLogin: Boolean(ADMIN_PASSWORD),
+      time: new Date().toISOString(),
+    });
   }
   if (p === '/' && m === 'GET') {
     return send(res, 200, { name: 'Bangla AI server', ok: true });
@@ -522,11 +562,22 @@ async function route(req, res) {
 
   if (p === '/admin/login' && m === 'POST') {
     if (!ADMIN_PASSWORD) throw bad('ADMIN_PASSWORD is not set on the server.', 503);
-    if (!loginAllowed(clientIp(req))) throw bad('Too many attempts. Wait 10 minutes.', 429);
-    const { password } = await readJson(req);
-    if (typeof password !== 'string' || !safeEqual(password, ADMIN_PASSWORD)) {
-      throw bad('Wrong password.', 401);
+    const ip = clientIp(req);
+    if (!loginAllowed(ip)) {
+      console.warn('Admin login refused: too many failed attempts from one address.');
+      throw Object.assign(bad('Too many wrong passwords. Wait 10 minutes and try again.', 429), {
+        code: 'rate_limited',
+      });
     }
+    const { password } = await readJson(req);
+    const given = typeof password === 'string' ? normalizePassword(password) : '';
+    if (!given || !safeEqual(given, ADMIN_PASSWORD)) {
+      loginFailed(ip);
+      console.warn(`Admin login failed (${mismatchHint(given)}).`);
+      throw Object.assign(bad('Wrong password.', 401), { code: 'wrong_password' });
+    }
+    loginSucceeded(ip);
+    console.log('Admin login OK.');
     return send(res, 200, { token: signToken(), expiresInHours: TOKEN_HOURS });
   }
   if (p === '/admin/config' && m === 'GET') {
@@ -578,4 +629,13 @@ if (require.main === module) {
   start();
 }
 
-module.exports = { start, cleanPatch, publicConfig, adminConfig, seedConfig, verifyToken, signToken };
+module.exports = {
+  start,
+  cleanPatch,
+  publicConfig,
+  adminConfig,
+  seedConfig,
+  verifyToken,
+  signToken,
+  normalizePassword,
+};

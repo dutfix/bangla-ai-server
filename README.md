@@ -6,6 +6,11 @@ chats to OmniRoute so the key never ships inside the app.
 
 Node 20+, one dependency (`pg`). Runs on Render's free plan.
 
+The Bangla AI Android app (Flutter) is in [`app/`](app/). Build it with
+`cd app && flutter pub get && flutter build apk --release --target-platform android-arm64`;
+it talks to `https://bangla-ai-server-1a46.onrender.com` unless you pass
+`--dart-define=BACKEND_URL=...`. Ready-made APKs are on the Releases page.
+
 ## Endpoints
 
 | Method | Path | Who | What |

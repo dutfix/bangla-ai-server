@@ -1,0 +1,314 @@
+{
+  "@@locale": "en",
+  "appName": "Bangla AI",
+  "appNameLatin": "BANGLA AI",
+  "appTagline": "Chat and talk in Bangla",
+  "cancel": "Cancel",
+  "delete": "Delete",
+  "rename": "Rename",
+  "save": "Save",
+  "saved": "Saved",
+  "ok": "OK",
+  "retry": "Retry",
+  "done": "Done",
+  "back": "Back",
+  "clear": "Clear",
+  "send": "Send",
+  "stop": "Stop",
+  "test": "Test",
+  "copy": "Copy",
+  "copied": "Copied",
+  "tryAgain": "Try again",
+  "newChat": "New chat",
+  "needApiKey": "Add your OmniRoute API key in Settings first.",
+  "couldNotReadAloud": "Could not read aloud: {error}",
+  "@couldNotReadAloud": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "couldNotOpen": "Could not open {link}",
+  "@couldNotOpen": {
+    "placeholders": {
+      "link": {
+        "type": "String"
+      }
+    }
+  },
+  "code": "code",
+  "groupToday": "Today",
+  "groupYesterday": "Yesterday",
+  "groupPrevious7": "Previous 7 days",
+  "groupPrevious30": "Previous 30 days",
+  "monthNames": "January,February,March,April,May,June,July,August,September,October,November,December",
+  "renameChat": "Rename chat",
+  "deleteChatTitle": "Delete chat?",
+  "deleteChatBody": "\"{title}\" will be deleted from this phone.",
+  "@deleteChatBody": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "voices": "Voices",
+  "settings": "Settings",
+  "searchChats": "Search chats",
+  "noChatsYet": "No chats yet",
+  "noMatches": "No matches",
+  "chatsSavedHere": "Your chats are saved on this phone.",
+  "nothingMatches": "Nothing in your chats matches \"{query}\".",
+  "@nothingMatches": {
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  },
+  "results": "Results",
+  "chatOptions": "Chat options",
+  "jumpToLatest": "Jump to latest",
+  "chats": "Chats",
+  "suggestExplain": "Explain something",
+  "suggestExplainPrompt": "Explain how ",
+  "suggestCode": "Write code",
+  "suggestCodePrompt": "Write a function that ",
+  "suggestSummarize": "Summarize text",
+  "suggestSummarizePrompt": "Summarize this:\n\n",
+  "suggestBrainstorm": "Brainstorm",
+  "suggestBrainstormPrompt": "Give me 10 ideas for ",
+  "howCanIHelp": "HOW CAN I HELP?",
+  "emptyChatSub": "Type a message, or talk hands-free in a voice call.",
+  "connectOmniRoute": "Connect OmniRoute",
+  "connectOmniRouteSub": "Add your API key and server to start chatting",
+  "startVoiceCall": "Start a voice call",
+  "startVoiceCallSub": "Talk hands-free. Replies are read in your call voice.",
+  "voiceCall": "Voice call",
+  "editAndResend": "Edit and resend",
+  "interrupted": "Interrupted",
+  "stopped": "Stopped",
+  "stopReading": "Stop reading",
+  "readAloud": "Read aloud",
+  "regenerate": "Regenerate",
+  "thinking": "Thinking",
+  "messageHint": "Message Bangla AI",
+  "stopGenerating": "Stop generating",
+  "emptyReply": "The AI sent an empty reply. Try again.",
+  "connectedReply": "Connected. {model} replied: \"{reply}\"",
+  "@connectedReply": {
+    "placeholders": {
+      "model": {
+        "type": "String"
+      },
+      "reply": {
+        "type": "String"
+      }
+    }
+  },
+  "themeSystem": "System",
+  "themeLight": "Light",
+  "themeDark": "Dark",
+  "aiConnection": "AI connection",
+  "aiConnectionHelp": "OmniRoute or any OpenAI-compatible server. If OmniRoute runs on your computer, use http://<computer-ip>:20128/v1 with the phone on the same Wi-Fi, or your OmniRoute cloud or tunnel address.",
+  "apiKeyLabel": "OmniRoute API key",
+  "apiKeyHelper": "Stored encrypted on this phone.",
+  "hideKey": "Hide key",
+  "showKey": "Show key",
+  "serverAddress": "Server address",
+  "testing": "Testing...",
+  "testConnection": "Test connection",
+  "model": "Model",
+  "modelsInList": "{count} in your list",
+  "@modelsInList": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "format": "decimalPattern"
+      }
+    }
+  },
+  "customInstructions": "Custom instructions",
+  "systemPromptLabel": "System prompt (optional)",
+  "systemPromptHint": "For example: You are a patient tutor. Keep answers short.",
+  "systemPromptHelper": "Sent with every chat and call, together with the instruction to reply in the app language. Calls also ask for short, spoken replies.",
+  "voice": "Voice",
+  "callVoice": "Call voice",
+  "callVoiceSub": "Used in calls and for Read aloud",
+  "speakingSpeed": "Speaking speed",
+  "language": "Language",
+  "languageSub": "App text, AI replies and speech recognition",
+  "appearance": "Appearance",
+  "deleteAllChats": "Delete all chats",
+  "deleteAllChatsSub": "Chats are saved only on this phone",
+  "deleteAllChatsTitle": "Delete all chats?",
+  "deleteAllChatsBody": "Every saved chat on this phone will be deleted. This cannot be undone.",
+  "deleteAll": "Delete all",
+  "allChatsDeleted": "All chats deleted",
+  "about": "About",
+  "aboutVersion": "Version {version}",
+  "@aboutVersion": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "aboutSpeech": "Speech recognition uses your phone's built-in recognizer (free) and listens in the app language: Bangla (bn-BD) by default. For offline recognition on Android, install the offline language in the Google app or Speech Services settings.",
+  "testFailed": "Test failed: {error}",
+  "@testFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "nowCallVoice": "{name} is now the call voice",
+  "@nowCallVoice": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "callVoicePill": "CALL VOICE",
+  "setAsCallVoice": "Set as call voice",
+  "genderFemale": "female",
+  "genderMale": "male",
+  "langBanglaBangladesh": "Bangla (Bangladesh)",
+  "langBanglaIndia": "Bangla (India)",
+  "voicesIntro": "Free Bangla voices from Speech Services by Google, built into your phone. They read the AI replies in calls and Read aloud.",
+  "voiceNumbered": "Voice {number}",
+  "@voiceNumbered": {
+    "placeholders": {
+      "number": {
+        "type": "String"
+      }
+    }
+  },
+  "voiceOfflineTag": "works offline",
+  "voiceNetworkTag": "needs internet",
+  "voiceDefaultTag": "default",
+  "selected": "Selected",
+  "select": "Select",
+  "play": "Play",
+  "pitch": "Pitch",
+  "speedValue": "{value}x",
+  "@speedValue": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "loadingVoices": "Looking for Bangla voices...",
+  "noBanglaVoicesTitle": "No Bangla voice found",
+  "refreshVoices": "Check again",
+  "voiceTestSample": "Hi! This is {name}. Does this voice sound good for our calls?",
+  "@voiceTestSample": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "setupNoGoogleTitle": "Install Google's voice",
+  "setupNoGoogleBody": "To hear replies in Bangla, install the free \"Speech Services by Google\" app from the Play Store, then come back.",
+  "setupNoGoogleButton": "Open Play Store",
+  "setupNoBanglaTitle": "Install the Bangla voice",
+  "setupNoBanglaBody": "Google's Bangla voice is not on this phone yet. Tap below, choose Bangla (Bangladesh) and download it. It is free and works offline afterwards.",
+  "setupNoBanglaButton": "Install Bangla voice",
+  "setupLater": "Later",
+  "setupCouldNotOpen": "Could not open the settings. Open Settings > Accessibility > Text-to-speech on your phone.",
+  "voiceUnavailableIos": "Bangla voices come from your phone's speech settings.",
+  "callEnded": "Call ended",
+  "connecting": "Connecting...",
+  "listening": "Listening",
+  "speakNow": "speak now",
+  "tapToInterrupt": "tap to interrupt",
+  "speaking": "Speaking",
+  "somethingWentWrong": "Something went wrong",
+  "voiceModeTitle": "Voice",
+  "closeVoiceMode": "Close voice mode",
+  "interrupt": "Interrupt",
+  "callAgain": "Call again",
+  "hangUp": "Hang up",
+  "hideText": "Hide text",
+  "showText": "Show text",
+  "startTalkingHint": "Start talking. I stop listening after a short pause.",
+  "callSavedInChat": "Your call is saved in the chat.",
+  "youLabel": "YOU",
+  "aiLabel": "BANGLA AI",
+  "voiceError": "Voice error: {error}",
+  "@voiceError": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "micPermission": "Microphone permission is needed for calls.",
+  "speechUnavailable": "Speech recognition is not available. Allow the microphone and make sure Google speech services (Android) are installed.",
+  "modelAutoDesc": "Picks the best model for each message",
+  "modelAutoFastDesc": "Picks a lighter model for faster replies",
+  "resetList": "Reset list",
+  "modelSheetHelp": "OmniRoute model IDs. Your choice applies to new replies and voice calls.",
+  "addModelHint": "Add a model, e.g. openai/gpt-4o",
+  "addModel": "Add model",
+  "removeModel": "Remove {model}",
+  "@removeModel": {
+    "placeholders": {
+      "model": {
+        "type": "String"
+      }
+    }
+  },
+  "apiKeyRejected": "API key rejected ({code}). Check your OmniRoute key.",
+  "@apiKeyRejected": {
+    "placeholders": {
+      "code": {
+        "type": "int",
+        "format": "decimalPattern"
+      }
+    }
+  },
+  "notFound404": "Not found (404). Check that the base URL ends with /v1 and the model name is right.",
+  "aiRequestFailed": "AI request failed ({code}): {detail}",
+  "@aiRequestFailed": {
+    "placeholders": {
+      "code": {
+        "type": "int",
+        "format": "decimalPattern"
+      },
+      "detail": {
+        "type": "String"
+      }
+    }
+  },
+  "unexpectedResponse": "The AI returned an unexpected response.",
+  "timeoutError": "The server took too long to answer. Check the address and your connection.",
+  "serverUnreachable": "Can't reach the Bangla AI server. Check your internet and try again.",
+  "serverWaking": "Server is waking up. This can take up to a minute...",
+  "serverOffline": "Offline: can't reach the server right now.",
+  "appDisabled": "The app is paused for now. Please try again later.",
+  "serverNotReady": "The server isn't set up yet. Please try again later.",
+  "tooManyRequests": "Too many requests right now. Wait a moment and try again.",
+  "modelSheetHelpServer": "Models offered by Bangla AI. Your choice applies to new replies and voice calls.",
+  "defaultTag": "default",
+  "useDefaultVoice": "Use default voice",
+  "useDefaultVoiceSub": "Voice, speed and pitch set by Bangla AI",
+  "phoneBestVoice": "Best Bangla voice on this phone",
+  "retryNow": "Try now",
+  "callStartHint": "Start talking. I stop listening after a short pause.",
+  "callSavedHint": "Your call is saved in the chat.",
+  "assistantLabel": "BANGLA AI",
+  "modelAuto": "Auto",
+  "modelFast": "Fast",
+  "@modelAuto": {
+    "description": "Label for the \"auto\" model"
+  },
+  "@modelFast": {
+    "description": "Label for the \"auto/fast\" model"
+  }
+}

@@ -1,0 +1,314 @@
+import 'package:material_ui/material_ui.dart';
+
+import '../app_services.dart';
+import '../l10n/l10n.dart';
+import '../services/call_controller.dart';
+import '../theme/app_theme.dart';
+import '../theme/hero_icons.dart';
+import '../theme/tokens.dart';
+import '../widgets/components.dart';
+import '../widgets/voice_orb.dart';
+import 'voices_screen.dart';
+
+/// Full-screen hands-free voice mode. It starts the call when it opens and
+/// hangs up when it closes. Every turn is also written into the chat.
+class VoiceModeScreen extends StatefulWidget {
+  const VoiceModeScreen({super.key, required this.services});
+  final AppServices services;
+
+  @override
+  State<VoiceModeScreen> createState() => _VoiceModeScreenState();
+}
+
+class _VoiceModeScreenState extends State<VoiceModeScreen> {
+  bool _captions = true;
+
+  CallController get call => widget.services.call;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => call.start());
+  }
+
+  @override
+  void dispose() {
+    if (call.inCall) call.hangUp();
+    super.dispose();
+  }
+
+  Future<void> _hangUp() async {
+    await call.hangUp();
+    if (mounted) Navigator.of(context).maybePop();
+  }
+
+  String _clock(Duration d) {
+    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return d.inHours > 0 ? '${d.inHours}:$m:$s' : '$m:$s';
+  }
+
+  (OrbState, String, String) _look(AppLocalizations l) => switch (call.state) {
+    CallState.idle => (OrbState.idle, l.callEnded, ''),
+    CallState.connecting => (OrbState.idle, l.connecting, ''),
+    CallState.listening => (OrbState.live, l.listening, l.speakNow),
+    CallState.thinking => (OrbState.paused, l.thinking, l.tapToInterrupt),
+    CallState.speaking => (OrbState.speaking, l.speaking, l.tapToInterrupt),
+    CallState.error => (OrbState.idle, l.somethingWentWrong, ''),
+  };
+
+  void _onOrbTap() {
+    switch (call.state) {
+      case CallState.thinking || CallState.speaking:
+        call.interrupt();
+      case CallState.idle || CallState.error:
+        call.start();
+      case CallState.connecting || CallState.listening:
+        break;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = Theme.of(context).colorScheme;
+    final t = Theme.of(context).textTheme;
+    final sv = widget.services;
+    return PopScope(
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop && call.inCall) call.hangUp();
+      },
+      child: Scaffold(
+        backgroundColor: s.surface,
+        body: Stack(
+          children: [
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(gradient: Brushes.soft),
+              ),
+            ),
+            SafeArea(
+              child: ListenableBuilder(
+                listenable: Listenable.merge([call, sv.settings, sv.speaker]),
+                builder: (context, _) {
+                  final l = context.l10n;
+                  final (orb, status, hint) = _look(l);
+                  final canInterrupt =
+                      call.state == CallState.thinking ||
+                      call.state == CallState.speaking;
+                  final ended = !call.inCall;
+                  return Column(
+                    children: [
+                      PageTitle(
+                        title: l.voiceModeTitle,
+                        maxLines: 1,
+                        subWidget: Text(
+                          voiceLabel(
+                            sv.settings.voice,
+                            sv.speaker.voices,
+                            l,
+                          ).split(' · ').first,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: t.bodyMedium?.copyWith(
+                            color: s.onSurfaceVariant,
+                          ),
+                        ),
+                        leading: IconButton(
+                          tooltip: l.closeVoiceMode,
+                          onPressed: _hangUp,
+                          icon: const HeroIcon(HeroIcons.chevronDown),
+                        ),
+                      ),
+                      Expanded(
+                        child: LayoutBuilder(
+                          builder: (context, box) => SingleChildScrollView(
+                            child: ConstrainedBox(
+                              constraints: BoxConstraints(
+                                minHeight: box.maxHeight,
+                              ),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const SizedBox(height: Space.gutter),
+                                  ActionOrb(
+                                    state: orb,
+                                    clock: _clock(call.elapsed),
+                                    hint: hint,
+                                    semanticLabel: status,
+                                    onTap: _onOrbTap,
+                                  ),
+                                  const SizedBox(height: Space.s18),
+                                  Text(
+                                    status,
+                                    style: t.titleLarge,
+                                    textAlign: TextAlign.center,
+                                  ),
+                                  const SizedBox(height: Space.sm),
+                                  AnimatedOpacity(
+                                    duration: Motion.fade,
+                                    opacity:
+                                        call.state == CallState.listening ||
+                                            call.state == CallState.speaking
+                                        ? 1
+                                        : 0.25,
+                                    child: Waveform(
+                                      level: call.state == CallState.listening
+                                          ? call.level
+                                          : 0,
+                                      synthetic:
+                                          call.state == CallState.speaking,
+                                      color: call.state == CallState.listening
+                                          ? Accent.red
+                                          : s.primary,
+                                    ),
+                                  ),
+                                  const SizedBox(height: Space.gutter),
+                                  if (call.error != null)
+                                    _errorCard(context, call.error!),
+                                  if (_captions) _captionCard(context),
+                                  const SizedBox(height: Space.gutter),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            CircleAction(
+                              icon: HeroIcons.handRaised,
+                              label: l.interrupt,
+                              accent: Accent.amber,
+                              onTap: canInterrupt ? call.interrupt : null,
+                            ),
+                            ended
+                                ? CircleAction(
+                                    icon: HeroIcons.phone,
+                                    label: l.callAgain,
+                                    accent: Accent.teal,
+                                    big: true,
+                                    onTap: call.start,
+                                  )
+                                : CircleAction(
+                                    icon: HeroIcons.phoneXMark,
+                                    label: l.hangUp,
+                                    accent: Accent.red,
+                                    big: true,
+                                    onTap: _hangUp,
+                                  ),
+                            CircleAction(
+                              icon: HeroIcons.chatBubbleLeftRight,
+                              label: _captions ? l.hideText : l.showText,
+                              accent: Accent.green,
+                              onTap: () =>
+                                  setState(() => _captions = !_captions),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _captionCard(BuildContext context) {
+    final s = Theme.of(context).colorScheme;
+    final t = Theme.of(context).textTheme;
+    final listening = call.state == CallState.listening;
+    final you = listening ? call.partial : call.lastHeard;
+    final reply = listening ? '' : (call.lastReply?.text ?? '');
+    if (you.isEmpty && reply.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: Space.emptyH),
+        child: Text(
+          call.inCall ? context.l10n.callStartHint : context.l10n.callSavedHint,
+          textAlign: TextAlign.center,
+          style: t.bodyMedium?.copyWith(color: s.onSurfaceVariant),
+        ),
+      );
+    }
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: Layout.maxWidthPage),
+      child: AppCard(
+        child: Padding(
+          padding: const EdgeInsets.all(Space.gutter),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (you.isNotEmpty) ...[
+                Text(
+                  context.l10n.youLabel,
+                  style: t.labelSmall?.copyWith(
+                    color: s.onSurfaceVariant,
+                    letterSpacing: tracking(context, 1.2),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  you,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: t.bodyLarge,
+                ),
+              ],
+              if (you.isNotEmpty && reply.isNotEmpty)
+                const SizedBox(height: Space.ml),
+              if (reply.isNotEmpty) ...[
+                Text(
+                  context.l10n.assistantLabel,
+                  style: t.labelSmall?.copyWith(
+                    color: s.primary,
+                    letterSpacing: tracking(context, 1.2),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  reply,
+                  maxLines: 6,
+                  overflow: TextOverflow.ellipsis,
+                  style: t.bodyLarge,
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _errorCard(BuildContext context, String error) {
+    final s = Theme.of(context).colorScheme;
+    final needsVoice = error == context.l10n.noBanglaVoicesTitle;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Space.ml),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: Layout.maxWidthPage),
+        child: AppCard(
+          borderColor: s.error.withValues(alpha: Alphas.circleActionBorder),
+          child: SettingRow(
+            icon: HeroIcons.exclamationTriangle,
+            accent: Accent.red,
+            title: error,
+            onTap: needsVoice
+                ? () => Navigator.of(context).pushReplacement(
+                    MaterialPageRoute<void>(
+                      builder: (_) => VoicesScreen(services: widget.services),
+                    ),
+                  )
+                : null,
+          ),
+        ),
+      ),
+    );
+  }
+}

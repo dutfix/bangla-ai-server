@@ -762,6 +762,15 @@ if (require.main === module) {
   if (!RESEND_API_KEY) console.warn('Warning: RESEND_API_KEY is not set; sign-in codes cannot be emailed.');
   if (!env.TOKEN_SECRET) console.warn('Warning: TOKEN_SECRET is not set; a restart signs the admin out.');
   console.log(`Admin sign-in: email code (admin email set: ${Boolean(ADMIN_EMAIL)}, mailer set: ${Boolean(RESEND_API_KEY)}).`);
+  if (RESEND_API_KEY) {
+    // The key's shape only, never the key: helps spot a bad paste.
+    const k = RESEND_API_KEY;
+    console.log(
+      `Resend key shape: ${k.length} chars, starts with re_: ${k.startsWith('re_')}, ` +
+        `spaces inside: ${/\s/.test(k)}, non-ASCII: ${/[^\x21-\x7e]/.test(k)}, ` +
+        `quotes: ${/["']/.test(k)}, re_ appears ${(k.match(/re_/g) || []).length} time(s).`,
+    );
+  }
   start();
 }
 

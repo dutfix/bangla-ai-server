@@ -2,19 +2,25 @@ import 'package:material_ui/material_ui.dart';
 
 import 'dart:async';
 
+import 'package:flutter/services.dart';
+
 import '../app_services.dart';
 import '../l10n/l10n.dart';
 import '../services/settings_store.dart';
 import '../services/speaker.dart';
 import '../services/voice_setup.dart';
+import '../models/agent.dart';
 import '../models/chat.dart';
+import '../services/agent_store.dart';
 import '../theme/hero_icons.dart';
 import '../theme/tokens.dart';
+import '../widgets/agent_widgets.dart';
 import '../widgets/components.dart';
 import '../widgets/composer.dart';
 import '../widgets/message_tile.dart';
 import '../widgets/model_sheet.dart';
 import '../widgets/sidebar.dart';
+import 'agents_screen.dart';
 import 'settings_screen.dart';
 import 'voice_mode_screen.dart';
 
@@ -52,6 +58,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     // Fetch the admin's config (wakes the free server if it sleeps).
     unawaited(sv.settings.refreshRemote());
     unawaited(sv.speaker.init());
+    // Reminders ring and background tasks are followed while the app runs.
+    sv.agents.start();
+    sv.agents.addListener(_onAgents);
     _scroll.addListener(() {
       // The list is reversed: offset 0 is the newest message.
       final jump = _scroll.hasClients && _scroll.offset > 400;
@@ -67,11 +76,80 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       unawaited(sv.settings.refreshRemote());
+      unawaited(sv.agents.tick());
+      unawaited(sv.agents.pollTasks());
     }
   }
 
+  bool _ringOpen = false;
+
+  /// Shows reminders that are ringing and tasks that just finished.
+  void _onAgents() {
+    if (!mounted) return;
+    final a = sv.agents;
+    final w = AgentText.of(context);
+    while (a.justFinished.isNotEmpty) {
+      final t = a.justFinished.removeAt(0);
+      if (t.status == 'cancelled') continue;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            t.status == 'done' ? w.taskDone(t.title) : w.taskFailed(t.title),
+          ),
+          action: SnackBarAction(
+            label: w.open,
+            onPressed: () => _push(TaskScreen(store: a, task: t)),
+          ),
+          duration: const Duration(seconds: 8),
+        ),
+      );
+    }
+    if (a.ringing.isNotEmpty && !_ringOpen) unawaited(_ring(a.ringing.first));
+  }
+
+  Future<void> _ring(Ringing r) async {
+    _ringOpen = true;
+    final w = AgentText.of(context);
+    final agent = agentById(r.reminder.agent);
+    unawaited(SystemSound.play(SystemSoundType.alert));
+    unawaited(HapticFeedback.heavyImpact());
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: AgentAvatar(agent: agent, size: 44),
+        title: Text(r.reminder.text),
+        content: Text(
+          [
+            '${agent.nameFor(w.en)} · ${w.reminderNow}',
+            if (r.taskId != null) w.taskStartedRoutine,
+          ].join('\n\n'),
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(w.ok),
+          ),
+        ],
+      ),
+    );
+    _ringOpen = false;
+    sv.agents.dismiss(r);
+  }
+
+  void _openAgents({int tab = 0}) => _push(
+    AgentsScreen(
+      store: sv.agents,
+      initialTab: tab,
+      onChatWith: (id) {
+        sv.chat.newChatWith(id);
+        _input.clear();
+      },
+    ),
+  );
+
   @override
   void dispose() {
+    sv.agents.removeListener(_onAgents);
     WidgetsBinding.instance.removeObserver(this);
     _input.dispose();
     _focus.dispose();
@@ -260,7 +338,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Widget _sidebar() => ListenableBuilder(
-    listenable: sv.chat,
+    listenable: Listenable.merge([sv.chat, sv.agents]),
     builder: (context, _) => ChatSidebar(
       store: sv.chats,
       currentId: sv.chat.current?.id,
@@ -268,6 +346,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       onOpen: _open,
       onDeleted: sv.chat.forget,
       onSettings: () => _push(SettingsScreen(services: sv)),
+      onAgents: _openAgents,
+      agentsBadge: sv.agents.unseenTasks,
     ),
   );
 
@@ -296,7 +376,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   Widget _chatBody(BuildContext context, bool wide) {
     return ListenableBuilder(
-      listenable: Listenable.merge([sv.chat, sv.settings, sv.readAloud]),
+      listenable: Listenable.merge([sv.chat, sv.settings, sv.readAloud, sv.agents]),
       builder: (context, _) {
         return LayoutBuilder(
           builder: (context, box) => _chatColumn(context, wide, box.maxHeight),
@@ -335,6 +415,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   ? modelLabel(sv.settings.model, context.l10n)
                   : null,
               title: chat.current?.title,
+              agent: chat.agent,
+              tasksBadge: sv.agents.unseenTasks,
+              onAgents: _openAgents,
               onMenu: () => _scaffold.currentState?.openDrawer(),
               onModel: hasModelChoice(sv.settings)
                   ? () => showModelSheet(context, sv.settings)
@@ -355,6 +438,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         Expanded(
           child: empty
               ? _Welcome(
+                  agent: chat.agent,
+                  onAgent: (id) => sv.chat.newChatWith(id),
                   onVoiceCall: sv.settings.voiceEnabled ? _voiceCall : null,
                   onSuggestion: (text) {
                     _input.text = text;
@@ -500,9 +585,15 @@ class _TopBar extends StatelessWidget {
     required this.onMenu,
     required this.onModel,
     required this.onNewChat,
+    required this.agent,
+    required this.onAgents,
+    this.tasksBadge = 0,
   });
 
   final bool wide;
+  final Agent agent;
+  final VoidCallback onAgents;
+  final int tasksBadge;
 
   /// The model's display name, or null when users get no model picker.
   final String? model;
@@ -515,7 +606,11 @@ class _TopBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = Theme.of(context).colorScheme;
     final t = Theme.of(context).textTheme;
-    final subtitle = (title != null && title!.isNotEmpty) ? title : model;
+    final w = AgentText.of(context);
+    final who = '${agent.nameFor(w.en)} · ${agent.roleFor(w.en)}';
+    final subtitle = (title != null && title!.isNotEmpty)
+        ? '${agent.nameFor(w.en)} · $title'
+        : (model != null ? '$who · $model' : who);
     // At least 64dp, and taller when the system font is large. The title is
     // a display face, so its growth is capped to keep the bar compact.
     return ConstrainedBox(
@@ -583,7 +678,7 @@ class _TopBar extends StatelessWidget {
                               ],
                             ],
                           ),
-                          if (subtitle != null)
+                          if (subtitle.isNotEmpty)
                             Text(
                               subtitle,
                               maxLines: 1,
@@ -597,6 +692,16 @@ class _TopBar extends StatelessWidget {
                     ),
                   ),
                 ),
+              ),
+            ),
+            IconButton(
+              key: const ValueKey('open-agents'),
+              tooltip: w.myAgents,
+              onPressed: onAgents,
+              icon: Badge(
+                isLabelVisible: tasksBadge > 0,
+                label: Text('$tasksBadge'),
+                child: const HeroIcon(HeroIcons.squares2x2),
               ),
             ),
             IconButton(
@@ -617,7 +722,15 @@ class _TopBar extends StatelessWidget {
 }
 
 class _Welcome extends StatelessWidget {
-  const _Welcome({this.onVoiceCall, required this.onSuggestion});
+  const _Welcome({
+    required this.agent,
+    required this.onAgent,
+    this.onVoiceCall,
+    required this.onSuggestion,
+  });
+
+  final Agent agent;
+  final ValueChanged<String> onAgent;
 
   /// Null when the admin has voice off: no call card.
   final VoidCallback? onVoiceCall;
@@ -628,12 +741,8 @@ class _Welcome extends StatelessWidget {
     final s = Theme.of(context).colorScheme;
     final t = Theme.of(context).textTheme;
     final l = context.l10n;
-    final suggestions = [
-      (HeroIcons.lightBulb, l.suggestExplain, l.suggestExplainPrompt),
-      (HeroIcons.codeBracket, l.suggestCode, l.suggestCodePrompt),
-      (HeroIcons.documentText, l.suggestSummarize, l.suggestSummarizePrompt),
-      (HeroIcons.sparkles, l.suggestBrainstorm, l.suggestBrainstormPrompt),
-    ];
+    final w = AgentText.of(context);
+    final suggestions = agent.suggestionsFor(w.en);
     return LayoutBuilder(
       builder: (context, box) => SingleChildScrollView(
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
@@ -648,7 +757,7 @@ class _Welcome extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Center(child: AssistantAvatar(size: 56)),
+                    Center(child: AgentAvatar(agent: agent, size: 56)),
                     const SizedBox(height: Space.gutter),
                     Padding(
                       padding: const EdgeInsets.symmetric(
@@ -657,7 +766,7 @@ class _Welcome extends StatelessWidget {
                       child: Text.rich(
                         TextSpan(
                           children: [
-                            TextSpan(text: l.howCanIHelp),
+                            TextSpan(text: w.hi(agent.nameFor(w.en))),
                             const WidgetSpan(
                               alignment: PlaceholderAlignment.middle,
                               child: Padding(
@@ -679,14 +788,28 @@ class _Welcome extends StatelessWidget {
                       child: Text(
                         // No voice call to point to while voice is off
                         // (always on the web).
-                        onVoiceCall != null
-                            ? l.emptyChatSub
-                            : l.emptyChatSubText,
+                        '${agent.roleFor(w.en)} · ${agent.blurbFor(w.en)}',
                         textAlign: TextAlign.center,
                         style: t.bodyMedium?.copyWith(
                           color: s.onSurfaceVariant,
                         ),
                       ),
+                    ),
+                    const SizedBox(height: Space.gutter),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: Space.gutter,
+                      ),
+                      child: AgentPicker(
+                        selected: agent.id,
+                        onSelected: onAgent,
+                      ),
+                    ),
+                    const SizedBox(height: Space.xs),
+                    Text(
+                      w.allSame,
+                      textAlign: TextAlign.center,
+                      style: t.labelSmall?.copyWith(color: s.onSurfaceVariant),
                     ),
                     const SizedBox(height: Space.gutter),
                     if (onVoiceCall != null) ...[
@@ -707,11 +830,11 @@ class _Welcome extends StatelessWidget {
                         spacing: Space.rowGap,
                         runSpacing: Space.rowGap,
                         children: [
-                          for (final (icon, label, text) in suggestions)
+                          for (final text in suggestions)
                             ChipButton(
-                              label: label,
-                              icon: icon,
-                              iconColor: s.primary,
+                              label: text,
+                              icon: HeroIcons.sparkles,
+                              iconColor: agent.color,
                               onPressed: () => onSuggestion(text),
                             ),
                         ],

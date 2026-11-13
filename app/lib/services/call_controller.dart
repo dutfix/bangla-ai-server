@@ -165,7 +165,13 @@ class CallController extends ChangeNotifier {
     }
 
     try {
-      await for (final chunk in llm.streamChat(messages, call: true)) {
+      await for (final chunk in llm.streamChat(
+        messages,
+        call: true,
+        agent: sink.agentId,
+        context: sink.agentContext(),
+        onEvent: (e) => sink.callAgentEvent(e, reply),
+      )) {
         if (!_active || turn != _turnId) return;
         reply.text += chunk;
         sink.callReplyChanged(reply);

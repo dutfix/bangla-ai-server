@@ -5,6 +5,7 @@ import '../models/chat.dart';
 import '../services/chat_store.dart';
 import '../theme/hero_icons.dart';
 import '../theme/tokens.dart';
+import 'agent_widgets.dart';
 import 'components.dart';
 
 /// Chat history: new chat, search, chats grouped by day, rename and delete,
@@ -18,6 +19,8 @@ class ChatSidebar extends StatefulWidget {
     required this.onOpen,
     required this.onDeleted,
     required this.onSettings,
+    this.onAgents,
+    this.agentsBadge = 0,
   });
 
   final ChatStore store;
@@ -26,6 +29,12 @@ class ChatSidebar extends StatefulWidget {
   final ValueChanged<Conversation> onOpen;
   final ValueChanged<Conversation> onDeleted;
   final VoidCallback onSettings;
+
+  /// Opens the agents' page (memory, notes, reminders, tasks, skills).
+  final VoidCallback? onAgents;
+
+  /// Finished tasks the user has not opened yet.
+  final int agentsBadge;
 
   @override
   State<ChatSidebar> createState() => _ChatSidebarState();
@@ -129,6 +138,15 @@ class _ChatSidebarState extends State<ChatSidebar> {
             // the list instead of taking fixed space.
             final compact = box.maxHeight < 520;
             final footer = [
+              if (widget.onAgents != null)
+                _footerRow(
+                  icon: HeroIcons.squares2x2,
+                  accent: Accent.green,
+                  label: widget.agentsBadge > 0
+                      ? '${AgentText.of(context).myAgents} (${widget.agentsBadge})'
+                      : AgentText.of(context).myAgents,
+                  onTap: widget.onAgents!,
+                ),
               _footerRow(
                 icon: HeroIcons.cog6Tooth,
                 accent: Accent.flagRed,

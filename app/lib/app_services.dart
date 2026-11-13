@@ -1,3 +1,4 @@
+import 'services/agent_store.dart';
 import 'services/call_controller.dart';
 import 'services/chat_controller.dart';
 import 'services/chat_store.dart';
@@ -17,7 +18,8 @@ class AppServices {
     required this.chat,
     required this.call,
     required this.readAloud,
-  });
+    AgentStore? agents,
+  }) : agents = agents ?? chat.agents ?? AgentStore();
 
   final SettingsStore settings;
 
@@ -32,14 +34,23 @@ class AppServices {
   final CallController call;
   final ReadAloud readAloud;
 
+  /// The four agents' memory, notes, reminders, skills and tasks.
+  final AgentStore agents;
+
   static Future<AppServices> create() async {
     final settings = SettingsStore();
     final chats = ChatStore();
-    // Both read from disk; neither needs the other.
-    await Future.wait([settings.load(), chats.load()]);
+    final agents = AgentStore(runsTimers: true);
+    // All read from disk; none needs the others.
+    await Future.wait([settings.load(), chats.load(), agents.load()]);
+    agents.deviceId = settings.deviceId;
     final speaker = Speaker();
     final listener = SpeechListener();
-    final chat = ChatController(store: chats, settings: settings);
+    final chat = ChatController(
+      store: chats,
+      settings: settings,
+      agents: agents,
+    );
     return AppServices(
       settings: settings,
       speaker: speaker,
@@ -53,6 +64,7 @@ class AppServices {
         sink: chat,
       ),
       readAloud: ReadAloud(settings, speaker),
+      agents: agents,
     );
   }
 }

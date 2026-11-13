@@ -9,6 +9,41 @@ String newId() =>
     '${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}'
     '${_rand.nextInt(0x7fffffff).toRadixString(36)}';
 
+/// One tool an agent used while writing a reply: a web search, a page it
+/// read, a note it saved. Shown above the reply.
+class ToolStep {
+  ToolStep({
+    required this.id,
+    required this.name,
+    this.detail = '',
+    this.done = false,
+    this.ok = true,
+  });
+
+  final String id;
+  final String name;
+  final String detail;
+  bool done;
+  bool ok;
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    if (detail.isNotEmpty) 'detail': detail,
+    'done': done,
+    'ok': ok,
+  };
+
+  factory ToolStep.fromJson(Map<String, dynamic> j) => ToolStep(
+    id: j['id'] as String? ?? '',
+    name: j['name'] as String? ?? '',
+    detail: j['detail'] as String? ?? '',
+    // A step saved while running never finished.
+    done: true,
+    ok: j['ok'] != false && j['done'] == true,
+  );
+}
+
 /// One message in a conversation.
 class ChatMessage {
   ChatMessage({
@@ -20,8 +55,10 @@ class ChatMessage {
     this.error,
     this.stopped = false,
     this.model,
+    List<ToolStep>? tools,
   }) : id = id ?? newId(),
-       at = at ?? DateTime.now();
+       at = at ?? DateTime.now(),
+       tools = tools ?? [];
 
   final String id;
   final Role role;
@@ -40,6 +77,9 @@ class ChatMessage {
   /// The model that wrote this reply.
   String? model;
 
+  /// Tools the agent used for this reply, in order.
+  final List<ToolStep> tools;
+
   bool get isUser => role == Role.user;
 
   Map<String, dynamic> toJson() => {
@@ -51,6 +91,7 @@ class ChatMessage {
     if (error != null) 'error': error,
     if (stopped) 'stopped': true,
     if (model != null) 'model': model,
+    if (tools.isNotEmpty) 'tools': tools.map((t) => t.toJson()).toList(),
   };
 
   factory ChatMessage.fromJson(Map<String, dynamic> j) => ChatMessage(
@@ -62,6 +103,10 @@ class ChatMessage {
     error: j['error'] as String?,
     stopped: j['stopped'] == true,
     model: j['model'] as String?,
+    tools: (j['tools'] as List? ?? [])
+        .whereType<Map>()
+        .map((t) => ToolStep.fromJson(t.cast<String, dynamic>()))
+        .toList(),
   );
 }
 
@@ -74,6 +119,7 @@ class Conversation {
     DateTime? updated,
     List<ChatMessage>? messages,
     this.titled = false,
+    this.agent,
   }) : id = id ?? newId(),
        created = created ?? DateTime.now(),
        updated = updated ?? DateTime.now(),
@@ -88,12 +134,17 @@ class Conversation {
   /// The title was set by the AI or the user (not just the first words).
   bool titled;
 
+  /// The agent this chat is with (an id from agents.dart). Chats from
+  /// before agents have none and open with the default agent.
+  String? agent;
+
   Map<String, dynamic> toJson() => {
     'id': id,
     'title': title,
     'created': created.millisecondsSinceEpoch,
     'updated': updated.millisecondsSinceEpoch,
     'titled': titled,
+    'agent': ?agent,
     'messages': messages.map((m) => m.toJson()).toList(),
   };
 
@@ -108,6 +159,7 @@ class Conversation {
     created: DateTime.fromMillisecondsSinceEpoch(j['created'] as int? ?? 0),
     updated: DateTime.fromMillisecondsSinceEpoch(j['updated'] as int? ?? 0),
     titled: j['titled'] == true,
+    agent: j['agent'] as String?,
     messages: (j['messages'] as List? ?? [])
         .whereType<Map>()
         .map((m) => ChatMessage.fromJson(m.cast<String, dynamic>()))

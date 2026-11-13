@@ -1,4 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:omni_voice_call/models/agent.dart';
+import 'package:omni_voice_call/screens/agents_screen.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:omni_voice_call/l10n/l10n.dart';
 import 'package:omni_voice_call/main.dart';
@@ -147,10 +149,18 @@ void main() {
         await settle(tester);
         expect(sv.chat.current, isNull);
 
-        // A suggestion chip fills the box.
-        await tester.ensureVisible(find.text(bn.suggestExplain));
+        // Choosing an agent changes the welcome and the suggestions.
+        await tester.ensureVisible(find.byKey(const ValueKey('agent-rongon')));
         await settle(tester);
-        await tester.tap(find.text(bn.suggestExplain));
+        await tester.tap(find.byKey(const ValueKey('agent-rongon')));
+        await settle(tester);
+        expect(sv.chat.agent.id, 'rongon');
+        final prompt = agentById('rongon').suggestions.first;
+
+        // A suggestion chip fills the box.
+        await tester.ensureVisible(find.text(prompt));
+        await settle(tester);
+        await tester.tap(find.text(prompt));
         await settle(tester);
         expect(
           tester
@@ -162,8 +172,28 @@ void main() {
               )
               .controller
               .text,
-          bn.suggestExplainPrompt,
+          prompt,
         );
+
+        // The agents' page opens from the top bar, with its five tabs.
+        await tester.tap(find.byKey(const ValueKey('open-agents')).first);
+        await settle(tester);
+        expect(find.byType(AgentsScreen), findsOneWidget);
+        for (final tab in ['মেমোরি', 'নোট', 'রিমাইন্ডার', 'কাজ', 'স্কিল']) {
+          expect(find.text(tab), findsWidgets);
+        }
+        await tester.tap(find.text('নোট').first);
+        await settle(tester);
+        await tester.tap(find.byKey(const ValueKey('hub-add')));
+        await settle(tester);
+        await tester.enterText(find.byType(TextField).first, 'বাজার');
+        await tester.enterText(find.byType(TextField).last, '- চাল');
+        await tester.tap(find.text('সংরক্ষণ'));
+        await settle(tester);
+        expect(sv.agents.notes.single.title, 'বাজার');
+        await tester.tap(find.byKey(const ValueKey('hub-back')));
+        await settle(tester);
+        expect(find.byType(AgentsScreen), findsNothing);
 
         // Model picker in the header.
         await tester.tap(find.text(bn.appName.toUpperCase()).first);

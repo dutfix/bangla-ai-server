@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../l10n/l10n.dart';
+import '../models/agent.dart';
 import '../models/chat.dart';
+import 'agent_store.dart';
 import 'chat_store.dart';
 import 'llm_client.dart';
 import 'settings_store.dart';
@@ -16,6 +18,13 @@ abstract class CallSink {
   ChatMessage callBeginReply();
   void callReplyChanged(ChatMessage reply);
   void callEndReply(ChatMessage reply, {bool interrupted, String? error});
+
+  /// The agent on the call, and what it knows about the user.
+  String? get agentId => null;
+  Map<String, Object?>? agentContext() => null;
+
+  /// A tool step or an action from the agent during a call turn.
+  void callAgentEvent(Map<String, Object?> event, ChatMessage reply) {}
 }
 
 /// Runs the text chat: sending, streaming, stop, regenerate, edit & resend
@@ -26,6 +35,7 @@ class ChatController extends ChangeNotifier implements CallSink {
     required this.settings,
     LlmClient? llm,
     LlmClient? titleLlm,
+    this.agents,
   }) : llm = llm ?? LlmClient(settings),
        titleLlm = titleLlm ?? LlmClient(settings);
 
@@ -34,7 +44,20 @@ class ChatController extends ChangeNotifier implements CallSink {
   final LlmClient llm;
   final LlmClient titleLlm;
 
+  /// The agents' memory, notes, reminders, skills and tasks. Without it
+  /// (old tests) the chat runs without an agent.
+  final AgentStore? agents;
+
   Conversation? _current;
+
+  /// The agent of the open chat, or the one chosen for a new chat.
+  Agent get agent => agentById(_current?.agent ?? agents?.agentId);
+
+  /// Starts a new chat, with [agentId] when given.
+  void newChatWith(String agentId) {
+    agents?.agentId = agentId;
+    newChat();
+  }
   Conversation? get current => _current;
   List<ChatMessage> get messages => _current?.messages ?? const [];
 
@@ -96,7 +119,40 @@ class ChatController extends ChangeNotifier implements CallSink {
   }
 
   Conversation _ensureConversation() {
-    return _current ??= store.create();
+    final c = _current ??= store.create();
+    if (agents != null) c.agent ??= agents!.agentId;
+    return c;
+  }
+
+  Map<String, Object?>? _context(Conversation c) =>
+      agents?.contextFor(agentById(c.agent).id);
+
+  /// Shows a tool step on [reply], or saves what an agent sent.
+  void _onEvent(Map<String, Object?> e, ChatMessage reply) {
+    final type = e['type'];
+    if (type == 'action') {
+      agents?.apply(e);
+      return;
+    }
+    if (type != 'tool') return;
+    final id = e['id'] as String? ?? '';
+    final step = reply.tools.where((t) => t.id == id).firstOrNull;
+    if (e['phase'] == 'start') {
+      if (step == null) {
+        reply.tools.add(
+          ToolStep(
+            id: id,
+            name: e['name'] as String? ?? '',
+            detail: e['detail'] as String? ?? '',
+          ),
+        );
+      }
+    } else if (step != null) {
+      step
+        ..done = true
+        ..ok = e['ok'] == true;
+    }
+    notifyListeners();
   }
 
   /// Sends a new user message and streams the reply.
@@ -171,10 +227,14 @@ class ChatController extends ChangeNotifier implements CallSink {
     streaming = reply;
     notifyListeners();
     try {
-      await for (final chunk in llm.streamChat([
-        ..._systemMessages(),
-        ...history,
-      ])) {
+      await for (final chunk in llm.streamChat(
+        [..._systemMessages(), ...history],
+        agent: agents == null ? null : agentById(c.agent).id,
+        context: _context(c),
+        onEvent: (e) {
+          if (gen == _gen) _onEvent(e, reply);
+        },
+      )) {
         if (gen != _gen) return;
         final first = reply.text.isEmpty;
         reply.text += chunk;
@@ -301,6 +361,19 @@ class ChatController extends ChangeNotifier implements CallSink {
 
   @override
   void callReplyChanged(ChatMessage reply) => _tick();
+
+  @override
+  String? get agentId => agents == null ? null : agent.id;
+
+  @override
+  Map<String, Object?>? agentContext() {
+    final c = _current;
+    return c == null ? agents?.contextFor(agent.id) : _context(c);
+  }
+
+  @override
+  void callAgentEvent(Map<String, Object?> event, ChatMessage reply) =>
+      _onEvent(event, reply);
 
   @override
   void callEndReply(

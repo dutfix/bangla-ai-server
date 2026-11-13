@@ -5,6 +5,7 @@ import '../l10n/l10n.dart';
 import '../models/chat.dart';
 import '../theme/hero_icons.dart';
 import '../theme/tokens.dart';
+import 'agent_widgets.dart';
 import 'components.dart';
 import 'markdown_view.dart';
 
@@ -239,6 +240,7 @@ class _MessageTileState extends State<MessageTile> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (m.viaVoice) _voiceTag(context),
+          if (m.tools.isNotEmpty) ToolStepsView(steps: m.tools),
           if (waiting)
             const Padding(
               padding: EdgeInsets.only(top: 4, bottom: 4),

@@ -39,6 +39,9 @@ class LlmClient {
     String? model,
     void Function()? onWaking,
     bool call = false,
+    String? agent,
+    Map<String, Object?>? context,
+    void Function(Map<String, Object?> event)? onEvent,
   }) async* {
     _checkEnabled();
     final client = _newClient();
@@ -51,6 +54,8 @@ class LlmClient {
         true,
         onWaking,
         call: call,
+        agent: agent,
+        context: context,
       );
       if (res.statusCode != 200) {
         final body = await res.stream.bytesToString();
@@ -76,6 +81,12 @@ class LlmClient {
           continue; // Keep-alive or non-JSON lines.
         }
         if (json is! Map) continue;
+        // Tool progress and device actions from an agent.
+        final ev = json['bangla_event'];
+        if (ev is Map) {
+          onEvent?.call(ev.cast<String, Object?>());
+          continue;
+        }
         final err = json['error'];
         if (err != null) {
           throw LlmException(err is Map ? '${err['message'] ?? err}' : '$err');
@@ -109,6 +120,8 @@ class LlmClient {
     bool stream,
     void Function()? onWaking, {
     bool call = false,
+    String? agent,
+    Map<String, Object?>? context,
   }) async {
     // A call turn: the server picks a fast model, keeps replies short and
     // adds the call style.
@@ -119,6 +132,8 @@ class LlmClient {
         'messages': messages,
         'stream': stream,
         if (call) 'call': true,
+        'agent': ?agent,
+        'context': ?context,
       });
     if (!settings.serverAwake) {
       final ok = await wakeServer(onWaiting: onWaking);

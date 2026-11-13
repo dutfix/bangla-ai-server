@@ -12,6 +12,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:omni_voice_call/app_services.dart';
 import 'package:omni_voice_call/models/chat.dart';
 import 'package:omni_voice_call/services/call_controller.dart';
+import 'package:omni_voice_call/services/agent_store.dart';
 import 'package:omni_voice_call/services/chat_controller.dart';
 import 'package:omni_voice_call/services/chat_store.dart';
 import 'package:omni_voice_call/services/listener.dart';
@@ -40,6 +41,9 @@ class FakeLlm extends LlmClient {
     String? model,
     void Function()? onWaking,
     bool call = false,
+    String? agent,
+    Map<String, Object?>? context,
+    void Function(Map<String, Object?> event)? onEvent,
   }) async* {
     cancelled = false;
     for (final word in streamedReply.split(' ')) {
@@ -124,6 +128,7 @@ Future<AppServices> rig({bool voice = true}) async {
     settings: settings,
     llm: FakeLlm(settings),
     titleLlm: FakeLlm(settings),
+    agents: AgentStore(),
   );
   return AppServices(
     settings: settings,

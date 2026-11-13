@@ -17,6 +17,11 @@ class FakeLlm extends LlmClient {
   FakeLlm(super.settings, {this.words = const ['Hello', ' there', '.']});
   final List<String> words;
   final asked = <List<Map<String, String>>>[];
+  final askedAgent = <String?>[];
+  final askedContext = <Map<String, Object?>?>[];
+
+  /// Agent events sent before the words.
+  List<Map<String, Object?>> events = const [];
   Completer<void>? gate;
   bool cancelled = false;
 
@@ -26,8 +31,16 @@ class FakeLlm extends LlmClient {
     String? model,
     void Function()? onWaking,
     bool call = false,
+    String? agent,
+    Map<String, Object?>? context,
+    void Function(Map<String, Object?> event)? onEvent,
   }) async* {
     asked.add(messages);
+    askedAgent.add(agent);
+    askedContext.add(context);
+    for (final e in events) {
+      onEvent?.call(e);
+    }
     for (final w in words) {
       if (gate != null) await gate!.future;
       if (cancelled) return;

@@ -18,10 +18,22 @@ process.env.MODELS = 'auto,auto/fast';
 delete process.env.DATABASE_URL;
 
 let lastUpstream = null;
+let lastSpeech = null;
+let speechCalls = 0;
 const fake = http.createServer((req, res) => {
   let body = '';
   req.on('data', (c) => (body += c));
   req.on('end', () => {
+    if (req.url.endsWith('/audio/speech')) {
+      lastSpeech = { auth: req.headers.authorization, body: JSON.parse(body) };
+      if (req.headers.authorization !== 'Bearer tts-key-9876') {
+        res.writeHead(401);
+        return res.end('{"error":"bad key"}');
+      }
+      speechCalls += 1;
+      res.writeHead(200, { 'Content-Type': 'audio/mpeg' });
+      return res.end(Buffer.from('ID3-fake-mp3'));
+    }
     lastUpstream = { auth: req.headers.authorization, body: JSON.parse(body) };
     if (req.headers.authorization !== 'Bearer sk-secret-1234') {
       res.writeHead(401);
@@ -249,7 +261,12 @@ test('chat proxy streams, adds the key and the admin prompt, forces allowed mode
   assert.equal(lastUpstream.auth, 'Bearer sk-secret-1234');
   assert.equal(lastUpstream.body.model, 'gpt-x');
   assert.equal(lastUpstream.body.messages[0].role, 'system');
-  assert.equal(lastUpstream.body.messages[0].content, 'Be kind.\n\nবাংলায় উত্তর দাও।');
+  const sys = lastUpstream.body.messages[0].content;
+  assert.ok(sys.startsWith('Be kind.\n\n'));
+  assert.match(sys, /laid-back friend/); // the default style prompt
+  assert.ok(!/live voice call/.test(sys)); // no call style in text chat
+  assert.ok(sys.endsWith('\n\nবাংলায় উত্তর দাও।'));
+  assert.equal(lastUpstream.body.max_tokens, undefined);
   assert.equal(lastUpstream.body.messages.length, 2);
 });
 
@@ -274,4 +291,171 @@ test('disabled switch blocks chat with the message', async () => {
   assert.equal(r.body.error.message, 'বন্ধ');
   assert.equal((await j('/v1/config')).body.enabled, false);
   await j('/admin/config', { method: 'PUT', headers: auth, body: { enabled: true } });
+});
+
+test('voice is off by default; public config has no provider details', async () => {
+  const pub = await j('/v1/config');
+  assert.equal(pub.body.voiceEnabled, false);
+  assert.equal(pub.body.voiceMode, 'off');
+  assert.equal(pub.body.callPauseMs, 900);
+  const r = await j('/v1/tts', { method: 'POST', body: { text: 'হ্যালো' } });
+  assert.equal(r.status, 403);
+  assert.equal(r.body.error.code, 'voice_off');
+});
+
+test('voice call turn: fast model, short replies, less history, call style', async () => {
+  const history = [];
+  for (let i = 0; i < 30; i++) history.push({ role: i % 2 ? 'assistant' : 'user', content: `m${i}` });
+  history.push({ role: 'user', content: 'শেষ' });
+  const r = await fetch(`${base}/v1/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      call: true,
+      model: 'gpt-x',
+      messages: [{ role: 'system', content: 'বাংলায় উত্তর দাও।' }, ...history],
+    }),
+  });
+  assert.equal(r.status, 200);
+  await r.text();
+  // Models are auto and gpt-x after the admin save: no auto/fast, so the default.
+  assert.equal(lastUpstream.body.model, 'gpt-x');
+  assert.equal(lastUpstream.body.max_tokens, 160);
+  const sys = lastUpstream.body.messages[0].content;
+  assert.match(sys, /live voice call/);
+  assert.match(sys, /laid-back friend/);
+  assert.equal(lastUpstream.body.messages.length, 1 + 10);
+  assert.equal(lastUpstream.body.messages.at(-1).content, 'শেষ');
+
+  const auth = { Authorization: `Bearer ${token}` };
+  await j('/admin/config', {
+    method: 'PUT',
+    headers: auth,
+    body: { models: ['auto', 'auto/fast', 'gpt-x'], callMaxTokens: 120, callHistory: 4 },
+  });
+  const call = async () =>
+    (await fetch(`${base}/v1/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ call: true, messages: history }),
+    })).text();
+  await call();
+  assert.equal(lastUpstream.body.model, 'auto/fast');
+  assert.equal(lastUpstream.body.max_tokens, 120);
+  assert.equal(lastUpstream.body.messages.length, 1 + 4);
+  await j('/admin/config', { method: 'PUT', headers: auth, body: { callModel: 'gpt-x' } });
+  await call();
+  assert.equal(lastUpstream.body.model, 'gpt-x');
+  await j('/admin/config', { method: 'PUT', headers: auth, body: { callModel: '' } });
+  const bad = await j('/admin/config', { method: 'PUT', headers: auth, body: { callPauseMs: 50 } });
+  assert.equal(bad.status, 400);
+});
+
+test('voice providers: saved with masked keys, key kept on edit, cloud voice speaks', async () => {
+  const auth = { Authorization: `Bearer ${token}` };
+  const types = await j('/admin/voice-types', { headers: auth });
+  const names = types.body.types.map((t) => t.type);
+  for (const t of ['azure', 'google', 'openai', 'elevenlabs']) assert.ok(names.includes(t), t);
+  const azure = types.body.types.find((t) => t.type === 'azure');
+  assert.ok(azure.fields.find((f) => f.key === 'voice').suggestions.includes('bn-BD-NabanitaNeural'));
+  assert.equal((await j('/admin/voice-types')).status, 401);
+
+  const fakeUrl = `http://127.0.0.1:${fake.address().port}/v1`;
+  const saved = await j('/admin/config', {
+    method: 'PUT',
+    headers: auth,
+    body: {
+      voiceEnabled: true,
+      voiceProvider: 'test-voice',
+      voiceProviders: [
+        { id: 'test-voice', type: 'openai', name: 'Test voice', baseUrl: fakeUrl, model: 'tts-1', voice: 'alloy', apiKey: 'tts-key-9876' },
+        { id: 'ms', type: 'azure', name: 'Microsoft', region: 'eastus', voice: 'bn-BD-PradeepNeural' },
+      ],
+    },
+  });
+  assert.equal(saved.status, 200, JSON.stringify(saved.body));
+  const list = saved.body.config.voiceProviders;
+  assert.equal(list[0].apiKeySet, true);
+  assert.equal(list[0].apiKeyHint, '••••9876');
+  assert.equal(list[0].apiKey, undefined);
+  assert.equal(list[1].apiKeySet, false);
+  assert.ok(!JSON.stringify(saved.body).includes('tts-key-9876'));
+
+  const pub = await j('/v1/config');
+  assert.equal(pub.body.voiceMode, 'server');
+  assert.equal(pub.body.voiceProviders, undefined);
+  assert.ok(!JSON.stringify(pub.body).includes('tts-key'));
+  assert.ok(!JSON.stringify(pub.body).includes(fakeUrl));
+
+  // Edit without retyping the key: it stays.
+  await j('/admin/config', {
+    method: 'PUT',
+    headers: auth,
+    body: { voiceProviders: [{ id: 'test-voice', type: 'openai', name: 'Renamed', baseUrl: fakeUrl, model: 'tts-1', voice: 'nova', apiKey: '' }, list[1]] },
+  });
+  const file = JSON.parse(fs.readFileSync(process.env.CONFIG_FILE, 'utf8'));
+  assert.equal(file.voiceProviders[0].apiKey, 'tts-key-9876');
+  assert.equal(file.voiceProviders[0].voice, 'nova');
+
+  const speak = (text) =>
+    fetch(`${base}/v1/tts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+  const r = await speak('আমি বাংলা এআই।');
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get('content-type'), 'audio/mpeg');
+  assert.equal(Buffer.from(await r.arrayBuffer()).toString(), 'ID3-fake-mp3');
+  assert.equal(lastSpeech.body.voice, 'nova');
+  assert.equal(lastSpeech.body.input, 'আমি বাংলা এআই।');
+  // The same line again comes from the cache.
+  const calls = speechCalls;
+  await (await speak('আমি বাংলা এআই।')).arrayBuffer();
+  assert.equal(speechCalls, calls);
+  const long = await j('/v1/tts', { method: 'POST', body: { text: 'ক'.repeat(700) } });
+  assert.equal(long.status, 413);
+
+  // Admin sample with the saved key, and with a wrong one.
+  const ok = await j('/admin/tts-test', { method: 'POST', headers: auth, body: { provider: { id: 'test-voice', type: 'openai', baseUrl: fakeUrl, model: 'tts-1', voice: 'alloy' } } });
+  assert.equal(ok.body.ok, true, JSON.stringify(ok.body));
+  assert.equal(Buffer.from(ok.body.audio, 'base64').toString(), 'ID3-fake-mp3');
+  const no = await j('/admin/tts-test', { method: 'POST', headers: auth, body: { provider: { id: 'new-one', type: 'openai', baseUrl: fakeUrl, model: 'tts-1', voice: 'alloy', apiKey: 'nope' } } });
+  assert.equal(no.body.ok, false);
+  assert.match(no.body.error, /rejected the key/);
+  const gap = await j('/admin/tts-test', { method: 'POST', headers: auth, body: { provider: { id: 'ms', type: 'azure', region: 'eastus', voice: 'bn-BD-PradeepNeural' } } });
+  assert.equal(gap.body.ok, false);
+  assert.match(gap.body.error, /missing: Speech key/);
+
+  // A provider without its key cannot be the active voice: the app uses the phone voice.
+  await j('/admin/config', { method: 'PUT', headers: auth, body: { voiceProvider: 'ms' } });
+  assert.equal((await j('/v1/config')).body.voiceMode, 'device');
+  // Removing the active provider falls back to the phone voice.
+  const removed = await j('/admin/config', { method: 'PUT', headers: auth, body: { voiceProviders: [] } });
+  assert.equal(removed.body.config.voiceProvider, 'device');
+  const bad = await j('/admin/config', { method: 'PUT', headers: auth, body: { voiceProviders: [{ type: 'nope' }] } });
+  assert.equal(bad.status, 400);
+  await j('/admin/config', { method: 'PUT', headers: auth, body: { voiceEnabled: false } });
+});
+
+test('admin overview stats, prompt defaults and prompt try-out', async () => {
+  const auth = { Authorization: `Bearer ${token}` };
+  const st = await j('/admin/stats', { headers: auth });
+  assert.equal(st.status, 200);
+  assert.ok(st.body.stats.chats >= 2);
+  assert.ok(st.body.stats.callTurns >= 3);
+  assert.ok(st.body.stats.ttsRequests >= 2);
+  assert.equal(st.body.ready, true);
+  assert.equal((await j('/admin/stats')).status, 401);
+  const d = await j('/admin/defaults', { headers: auth });
+  assert.match(d.body.stylePrompt, /laid-back/);
+  const t = await j('/admin/try-chat', {
+    method: 'POST',
+    headers: auth,
+    body: { text: 'কেমন আছো?', call: true, draft: { callPrompt: 'Speak briefly.' } },
+  });
+  assert.equal(t.body.ok, true);
+  assert.equal(t.body.reply, 'হ্যালো');
+  assert.match(lastUpstream.body.messages[0].content, /Speak briefly\./);
+  assert.match(lastUpstream.body.messages[0].content, /natural spoken Bangla/);
 });

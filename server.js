@@ -20,10 +20,11 @@ const http = require('node:http');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const voice = require('./voice');
 
 const env = process.env;
 const PORT = Number(env.PORT || 10000);
-const VERSION = '1.1.0';
+const VERSION = '1.2.0';
 
 // Admin sign-in is passwordless: the admin enters their email, the server
 // emails a 6-digit code (through Resend's HTTP API: Render's free plan blocks
@@ -74,7 +75,26 @@ const LIMITS = {
   messages: 60,
   messageChars: 16000,
   upstreamTimeoutMs: 120000,
+  ttsChars: 600, // one sentence or two per /v1/tts request
+  ttsCharsPerMinute: 4000, // per phone (IP), protects a paid voice quota
 };
+
+// How the AI talks. Admin-editable; these are the starting values.
+const DEFAULT_STYLE_PROMPT = [
+  'Talk like a sharp, laid-back friend who happens to know a lot: warm, direct, and lightly funny when the moment fits (never forced).',
+  'Get to the point. No flattery or canned assistant lines: no "Great question!", "Certainly!", "As an AI...", "I hope this helps", and do not repeat the question back or open every reply with an acknowledgment.',
+  'Do not end with a follow-up question unless you truly need an answer to help.',
+  'Match the user: a short message gets a short reply; go deeper only when they ask or the topic needs it.',
+  'In Bangla, sound like natural everyday spoken Bangla (cholito), not stiff textbook language; in English, plain conversational English.',
+  'Be honest: if you are not sure, say so plainly and never make things up. You are an AI assistant; do not claim to be a human.',
+  'Use lists, headings or code only when they really help in a text chat.',
+].join(' ');
+
+const DEFAULT_CALL_PROMPT = [
+  'This is a live voice call, so talk the way people actually speak.',
+  'Reply in one to three short spoken sentences. No markdown, lists, emojis, links or code.',
+  'Skip filler openers like "Sure!" or "Okay, so". If something needs more detail, give the gist; they will ask for more.',
+].join(' ');
 
 // ---------------------------------------------------------------- config
 
@@ -106,6 +126,18 @@ function seedConfig() {
     voiceLocale: env.VOICE_LOCALE || 'bn-BD',
     speed: numEnv('VOICE_SPEED', 1.0),
     pitch: numEnv('VOICE_PITCH', 1.0),
+    // Voice features stay off until the admin sets them up.
+    voiceEnabled: env.VOICE_ENABLED === 'true',
+    voiceProvider: 'device', // 'device' or the id of an entry in voiceProviders
+    voiceProviders: [],
+    stylePrompt: env.STYLE_PROMPT || DEFAULT_STYLE_PROMPT,
+    callPrompt: env.CALL_PROMPT || DEFAULT_CALL_PROMPT,
+    callModel: env.CALL_MODEL || '', // '' = auto/fast when listed, else the default model
+    callMaxTokens: numEnv('CALL_MAX_TOKENS', 160),
+    callPauseMs: numEnv('CALL_PAUSE_MS', 900),
+    callHistory: numEnv('CALL_HISTORY', 10),
+    callOfflineVoice: true, // use a phone voice's offline twin in calls (starts faster)
+    ttsDailyChars: numEnv('TTS_DAILY_CHARS', 200000),
     updatedAt: new Date(0).toISOString(),
   };
 }
@@ -130,6 +162,16 @@ function cleanPatch(p) {
   str('voiceName', 200);
   str('voiceLocale', 20);
   str('defaultModel', 200);
+  str('stylePrompt', 8000);
+  str('callPrompt', 4000);
+  str('callModel', 200);
+  str('voiceProvider', 40);
+  for (const k of ['voiceEnabled', 'callOfflineVoice']) {
+    if (p[k] === undefined) continue;
+    if (typeof p[k] !== 'boolean') throw bad(`${k} must be true or false.`);
+    out[k] = p[k];
+  }
+  if (p.voiceProviders !== undefined) out.voiceProviders = voice.cleanProviders(p.voiceProviders, bad);
   // An empty or missing key keeps the stored one; send clearApiKey to remove it.
   if (typeof p.apiKey === 'string' && p.apiKey.trim()) {
     if (p.apiKey.length > 1000) throw bad('apiKey is too long.');
@@ -161,13 +203,41 @@ function cleanPatch(p) {
     if (!Number.isFinite(n) || n < lo || n > hi) throw bad(`${k} must be between ${lo} and ${hi}.`);
     out[k] = Math.round(n * 100) / 100;
   }
+  for (const [k, lo, hi] of [
+    ['callMaxTokens', 40, 1000],
+    ['callPauseMs', 400, 3000],
+    ['callHistory', 2, 40],
+    ['ttsDailyChars', 0, 10000000],
+  ]) {
+    if (p[k] === undefined) continue;
+    const n = Number(p[k]);
+    if (!Number.isInteger(n) || n < lo || n > hi) throw bad(`${k} must be a whole number from ${lo} to ${hi}.`);
+    out[k] = n;
+  }
   return out;
 }
 
 function merge(cfg, patch) {
   const next = { ...cfg, ...patch, updatedAt: new Date().toISOString() };
+  if (patch.voiceProviders) next.voiceProviders = voice.mergeProviders(cfg.voiceProviders, patch.voiceProviders);
   if (!next.models.includes(next.defaultModel)) next.defaultModel = next.models[0];
+  if (next.voiceProvider !== 'device' && !next.voiceProviders.some((v) => v.id === next.voiceProvider)) {
+    next.voiceProvider = 'device';
+  }
   return next;
+}
+
+/** The cloud voice provider in use, or null for the phone's own voice. */
+function activeProvider(cfg) {
+  if (cfg.voiceProvider === 'device') return null;
+  const p = (cfg.voiceProviders || []).find((v) => v.id === cfg.voiceProvider);
+  return p && !voice.missing(p) ? p : null;
+}
+
+/** The model for voice calls: the admin's pick, else a fast one. */
+function callModelOf(cfg) {
+  if (cfg.callModel) return cfg.callModel;
+  return cfg.models.includes('auto/fast') ? 'auto/fast' : cfg.defaultModel;
 }
 
 /** What the main app may see: everything except the key. */
@@ -181,6 +251,13 @@ function publicConfig(cfg) {
     voiceLocale: cfg.voiceLocale,
     speed: cfg.speed,
     pitch: cfg.pitch,
+    // 'off' (no call button, no read-aloud), 'device' (phone voice) or
+    // 'server' (the app plays audio from POST /v1/tts). No provider details.
+    voiceEnabled: Boolean(cfg.voiceEnabled),
+    voiceMode: !cfg.voiceEnabled ? 'off' : activeProvider(cfg) ? 'server' : 'device',
+    callPauseMs: cfg.callPauseMs,
+    callHistory: cfg.callHistory,
+    callOfflineVoice: cfg.callOfflineVoice,
     ready: Boolean(cfg.baseUrl && cfg.apiKey),
     updatedAt: cfg.updatedAt,
   };
@@ -194,6 +271,8 @@ function adminConfig(cfg) {
     apiKey: undefined,
     apiKeySet: Boolean(k),
     apiKeyHint: k ? `••••${k.slice(-4)}` : '',
+    voiceProviders: voice.maskProviders(cfg.voiceProviders),
+    callModelInUse: callModelOf(cfg),
   };
 }
 
@@ -636,28 +715,101 @@ async function callOmniRoute(cfg, body, signal) {
   return res;
 }
 
+// ---------------------------------------------------------------- usage
+//
+// Counters since the server started (a free Render server restarts after it
+// sleeps), for the admin's overview. No message text is kept.
+
+const stats = {
+  since: new Date().toISOString(),
+  chats: 0,
+  callTurns: 0,
+  failures: 0,
+  ttsRequests: 0,
+  ttsChars: 0,
+  ttsDay: '',
+  ttsCharsToday: 0,
+  chatFirstMs: [],
+  callFirstMs: [],
+  ttsMs: [],
+  recentErrors: [],
+};
+
+function note(list, ms) {
+  list.push(ms);
+  if (list.length > 50) list.shift();
+}
+
+function median(list) {
+  if (!list.length) return null;
+  const a = [...list].sort((x, y) => x - y);
+  return a[Math.floor(a.length / 2)];
+}
+
+function noteError(where, message) {
+  stats.failures += 1;
+  stats.recentErrors.unshift({ at: new Date().toISOString(), where, message: String(message).slice(0, 200) });
+  stats.recentErrors.length = Math.min(stats.recentErrors.length, 20);
+}
+
+function statsView() {
+  return {
+    since: stats.since,
+    uptimeSeconds: Math.round(process.uptime()),
+    chats: stats.chats,
+    callTurns: stats.callTurns,
+    failures: stats.failures,
+    ttsRequests: stats.ttsRequests,
+    ttsChars: stats.ttsChars,
+    ttsCharsToday: stats.ttsDay === today() ? stats.ttsCharsToday : 0,
+    chatFirstReplyMs: median(stats.chatFirstMs),
+    callFirstReplyMs: median(stats.callFirstMs),
+    ttsMs: median(stats.ttsMs),
+    recentErrors: stats.recentErrors,
+  };
+}
+
+function today() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 // ---------------------------------------------------------------- routes
+
+/** The system prompt the model sees: admin prompt, style, call style, app lines. */
+function systemPrompt(cfg, appLines, call) {
+  return [cfg.systemPrompt, cfg.stylePrompt, call ? cfg.callPrompt : '', ...appLines]
+    .filter((s) => s && s.trim())
+    .join('\n\n');
+}
 
 async function chat(req, res) {
   if (APP_KEY && req.headers['x-app-key'] !== APP_KEY) throw bad('Unknown app.', 401);
   const cfg = config;
   if (!cfg.enabled) throw Object.assign(bad(cfg.disabledMessage, 503), { code: 'disabled' });
+  const started = Date.now();
   const body = await readJson(req);
-  const app = cleanMessages(body.messages);
-  const model = cfg.models.includes(body.model) ? body.model : cfg.defaultModel;
+  const call = body.call === true;
+  let app = cleanMessages(body.messages);
+  if (call) {
+    // Calls send less history and use a fast model with short replies.
+    const sysLines = app.filter((m) => m.role === 'system');
+    app = [...sysLines, ...app.filter((m) => m.role !== 'system').slice(-cfg.callHistory)];
+  }
+  const model = call ? callModelOf(cfg) : cfg.models.includes(body.model) ? body.model : cfg.defaultModel;
   const stream = body.stream !== false;
-  // The admin's system prompt goes first, then the app's own system lines
-  // (reply language, call style), then the conversation.
-  const sys = [cfg.systemPrompt, ...app.filter((m) => m.role === 'system').map((m) => m.content)]
-    .filter((s) => s && s.trim())
-    .join('\n\n');
+  // The admin's prompts go first, then the app's own system lines (reply
+  // language), then the conversation.
+  const sys = systemPrompt(cfg, app.filter((m) => m.role === 'system').map((m) => m.content), call);
   const messages = [
     ...(sys ? [{ role: 'system', content: sys }] : []),
     ...app.filter((m) => m.role !== 'system'),
   ];
   const upstreamBody = { model, messages, stream };
   if (Number.isFinite(body.max_tokens)) upstreamBody.max_tokens = Math.min(Math.max(1, body.max_tokens), 4096);
+  if (call) upstreamBody.max_tokens = Math.min(upstreamBody.max_tokens || Infinity, cfg.callMaxTokens);
   if (Number.isFinite(body.temperature)) upstreamBody.temperature = Math.min(Math.max(0, body.temperature), 2);
+  if (call) stats.callTurns += 1;
+  else stats.chats += 1;
 
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), LIMITS.upstreamTimeoutMs);
@@ -666,7 +818,9 @@ async function chat(req, res) {
     const up = await callOmniRoute(cfg, upstreamBody, ctl.signal);
     if (!up.ok) {
       const text = await up.text();
-      throw bad(upstreamError(up.status, text), up.status === 401 || up.status === 403 ? 502 : up.status);
+      const message = upstreamError(up.status, text);
+      noteError(call ? 'call' : 'chat', message);
+      throw Object.assign(bad(message, up.status === 401 || up.status === 403 ? 502 : up.status), { noted: true });
     }
     res.writeHead(200, {
       'Content-Type': stream ? 'text/event-stream; charset=utf-8' : 'application/json; charset=utf-8',
@@ -676,11 +830,17 @@ async function chat(req, res) {
       ...CORS,
     });
     if (!up.body) return res.end();
+    let first = true;
     for await (const chunk of up.body) {
+      if (first) {
+        first = false;
+        note(call ? stats.callFirstMs : stats.chatFirstMs, Date.now() - started);
+      }
       if (!res.write(chunk)) await new Promise((r) => res.once('drain', r));
     }
     res.end();
   } catch (e) {
+    if (e && e.name !== 'AbortError' && !e.noted && !res.destroyed) noteError(call ? 'call' : 'chat', e.message || e);
     if (res.headersSent) {
       // Mid-stream failure: tell the app in the stream itself.
       if (e.name !== 'AbortError') {
@@ -730,6 +890,151 @@ async function testConnection(req, res) {
   }
 }
 
+// ---------------------------------------------------------------- voice
+
+const ttsIp = new Map(); // ip -> [{ t, n }] chars spoken in the last minute
+const ttsCache = new Map(); // recent audio, so repeated lines cost nothing
+
+function ttsAllowance(ip, n) {
+  const now = Date.now();
+  const list = (ttsIp.get(ip) || []).filter((x) => now - x.t < 60e3);
+  const used = list.reduce((a, x) => a + x.n, 0);
+  if (used + n > LIMITS.ttsCharsPerMinute) return false;
+  list.push({ t: now, n });
+  ttsIp.set(ip, list);
+  if (ttsIp.size > 5000) ttsIp.clear();
+  return true;
+}
+
+async function speak(provider, text, cfg) {
+  const key = crypto
+    .createHash('sha256')
+    .update(JSON.stringify([provider.id, provider.type, provider.voice, provider.model, cfg.speed, cfg.pitch, text]))
+    .digest('hex');
+  const hit = ttsCache.get(key);
+  if (hit) return { ...hit, cached: true };
+  const started = Date.now();
+  const out = await voice.synthesize(provider, text, {
+    speed: cfg.speed,
+    pitch: cfg.pitch,
+    signal: AbortSignal.timeout(20000),
+  });
+  note(stats.ttsMs, Date.now() - started);
+  ttsCache.set(key, out);
+  if (ttsCache.size > 80) ttsCache.delete(ttsCache.keys().next().value);
+  return out;
+}
+
+/** POST /v1/tts { text } -> audio/mpeg from the admin's cloud voice. */
+async function tts(req, res) {
+  if (APP_KEY && req.headers['x-app-key'] !== APP_KEY) throw bad('Unknown app.', 401);
+  const cfg = config;
+  if (!cfg.enabled) throw Object.assign(bad(cfg.disabledMessage, 503), { code: 'disabled' });
+  if (!cfg.voiceEnabled) throw Object.assign(bad('Voice is off.', 403), { code: 'voice_off' });
+  const provider = activeProvider(cfg);
+  if (!provider) throw Object.assign(bad('No cloud voice is set up; use the phone voice.', 409), { code: 'no_provider' });
+  const { text } = await readJson(req);
+  const t = String(text || '').trim();
+  if (!t) throw bad('text is empty.');
+  if (t.length > LIMITS.ttsChars) throw bad(`text is too long (${LIMITS.ttsChars} characters at most).`, 413);
+  if (stats.ttsDay !== today()) {
+    stats.ttsDay = today();
+    stats.ttsCharsToday = 0;
+  }
+  if (cfg.ttsDailyChars && stats.ttsCharsToday + t.length > cfg.ttsDailyChars) {
+    throw Object.assign(bad('Today\'s voice limit is used up.', 429), { code: 'tts_daily_limit' });
+  }
+  if (!ttsAllowance(clientIp(req), t.length)) {
+    throw Object.assign(bad('Too much speech at once. Wait a moment.', 429), { code: 'tts_rate' });
+  }
+  let out;
+  try {
+    out = await speak(provider, t, cfg);
+  } catch (e) {
+    noteError('voice', e.message || e);
+    throw Object.assign(bad(String(e.message || e), 502), { code: 'tts_failed' });
+  }
+  if (!out.cached) {
+    stats.ttsCharsToday += t.length;
+    stats.ttsChars += t.length;
+  }
+  stats.ttsRequests += 1;
+  res.writeHead(200, { 'Content-Type': out.type, 'Content-Length': out.audio.length, 'Cache-Control': 'no-store', ...CORS });
+  res.end(out.audio);
+}
+
+/** POST /admin/tts-test { provider, text } -> a short sample, base64 MP3. */
+async function ttsTest(req, res) {
+  requireAdmin(req);
+  const body = await readJson(req);
+  const [draft] = voice.cleanProviders([body.provider], bad);
+  const [p] = voice.mergeProviders(config.voiceProviders, [draft]);
+  const text = String(body.text || 'আসসালামু আলাইকুম! আমি বাংলা এআই। কেমন আছেন?').trim().slice(0, 300);
+  const started = Date.now();
+  try {
+    const out = await voice.synthesize(p, text, {
+      speed: config.speed,
+      pitch: config.pitch,
+      signal: AbortSignal.timeout(20000),
+    });
+    send(res, 200, {
+      ok: true,
+      ms: Date.now() - started,
+      bytes: out.audio.length,
+      type: out.type,
+      audio: out.audio.toString('base64'),
+    });
+  } catch (e) {
+    send(res, 200, { ok: false, error: String(e.message || e) });
+  }
+}
+
+/** POST /admin/try-chat { text, call } -> the reply the app would get, for trying prompts. */
+async function tryChat(req, res) {
+  requireAdmin(req);
+  const body = await readJson(req);
+  const draft = cleanPatch(body.draft || {});
+  const cfg = merge(config, draft);
+  const call = body.call === true;
+  const text = String(body.text || '').trim().slice(0, 2000);
+  if (!text) throw bad('Type a message to try.');
+  const lang = /[\u0980-\u09FF]/.test(text)
+    ? 'Reply in natural spoken Bangla (Bengali script).'
+    : 'Reply in the language the user writes in.';
+  const model = call ? callModelOf(cfg) : cfg.defaultModel;
+  const started = Date.now();
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 60000);
+  try {
+    const up = await callOmniRoute(
+      cfg,
+      {
+        model,
+        stream: false,
+        ...(call ? { max_tokens: cfg.callMaxTokens } : {}),
+        messages: [
+          { role: 'system', content: systemPrompt(cfg, [lang], call) },
+          { role: 'user', content: text },
+        ],
+      },
+      ctl.signal,
+    );
+    const raw = await up.text();
+    if (!up.ok) return send(res, 200, { ok: false, error: upstreamError(up.status, raw) });
+    let reply = '';
+    try {
+      reply = JSON.parse(raw).choices[0].message.content || '';
+    } catch {
+      return send(res, 200, { ok: false, error: 'OmniRoute answered, but not in the OpenAI format.' });
+    }
+    send(res, 200, { ok: true, model, reply: reply.trim(), ms: Date.now() - started });
+  } catch (e) {
+    send(res, 200, { ok: false, error: String(e.message || e) });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function route(req, res) {
   const url = new URL(req.url, 'http://x');
   const p = url.pathname.replace(/\/+$/, '') || '/';
@@ -757,6 +1062,7 @@ async function route(req, res) {
     return send(res, 200, publicConfig(config));
   }
   if (p === '/v1/chat' && m === 'POST') return chat(req, res);
+  if (p === '/v1/tts' && m === 'POST') return tts(req, res);
 
   if (p === '/admin/setup-mailer' && m === 'POST') return setupMailer(req, res);
   if (p === '/admin/request-code' && m === 'POST') return requestCode(req, res);
@@ -778,6 +1084,28 @@ async function route(req, res) {
     return send(res, 200, { config: adminConfig(config), store: store.kind, storeOk });
   }
   if (p === '/admin/test' && m === 'POST') return testConnection(req, res);
+  if (p === '/admin/tts-test' && m === 'POST') return ttsTest(req, res);
+  if (p === '/admin/try-chat' && m === 'POST') return tryChat(req, res);
+  if (p === '/admin/voice-types' && m === 'GET') {
+    requireAdmin(req);
+    return send(res, 200, { types: voice.providerTypes() });
+  }
+  if (p === '/admin/stats' && m === 'GET') {
+    requireAdmin(req);
+    return send(res, 200, {
+      stats: statsView(),
+      version: VERSION,
+      store: store.kind,
+      storeOk,
+      storeError,
+      emailReady: Boolean(ADMIN_EMAIL && RESEND_API_KEY),
+      ready: Boolean(config.baseUrl && config.apiKey),
+    });
+  }
+  if (p === '/admin/defaults' && m === 'GET') {
+    requireAdmin(req);
+    return send(res, 200, { stylePrompt: DEFAULT_STYLE_PROMPT, callPrompt: DEFAULT_CALL_PROMPT });
+  }
 
   throw bad('Not found.', 404);
 }

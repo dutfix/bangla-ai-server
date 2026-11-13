@@ -626,6 +626,13 @@ async function start({ port = PORT } = {}) {
 
 if (require.main === module) {
   if (!ADMIN_PASSWORD) console.warn('Warning: ADMIN_PASSWORD is not set; admin login is off.');
+  // Optional self-check: set ADMIN_PASSWORD_CHECK to the intended password to
+  // confirm ADMIN_PASSWORD was stored exactly. Logs only match/lengths.
+  if (env.ADMIN_PASSWORD_CHECK != null) {
+    const check = normalizePassword(env.ADMIN_PASSWORD_CHECK);
+    if (check && safeEqual(check, ADMIN_PASSWORD)) console.log('Admin password check: MATCH.');
+    else console.warn(`Admin password check: MISMATCH (${mismatchHint(check)}).`);
+  }
   start();
 }
 

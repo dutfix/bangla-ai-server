@@ -4,7 +4,8 @@
 // - GET  /health               liveness check (no database, answers fast)
 // - GET  /v1/config            public app config (no key)
 // - POST /v1/chat              chat proxy to OmniRoute, streams SSE back
-// - POST /admin/login          admin password -> signed token (12 h)
+// - POST /admin/request-code   emails a 6-digit code to ADMIN_EMAIL
+// - POST /admin/verify-code    email + code -> signed token (30 days)
 // - GET  /admin/config         full config, key masked (admin)
 // - PUT  /admin/config         update any config field (admin)
 // - POST /admin/test           test OmniRoute with stored or draft values
@@ -22,30 +23,39 @@ const path = require('node:path');
 
 const env = process.env;
 const PORT = Number(env.PORT || 10000);
-const VERSION = '1.0.1';
+const VERSION = '1.1.0';
 
-/**
- * Passwords are compared after the same clean-up on both sides: Unicode NFC
- * (so Bangla typed on different keyboards matches), no zero-width or
- * byte-order characters, and no spaces or line breaks at either end (a paste
- * into a web form or a phone keyboard's suggestion often adds one).
- */
-function normalizePassword(s) {
+// Admin sign-in is passwordless: the admin enters their email, the server
+// emails a 6-digit code (through Resend's HTTP API: Render's free plan blocks
+// SMTP ports), and the code is exchanged for a signed token.
+const ADMIN_EMAIL = normalizeEmail(env.ADMIN_EMAIL);
+const RESEND_API_KEY = (env.RESEND_API_KEY || '').trim();
+const RESEND_API_URL = env.RESEND_API_URL || 'https://api.resend.com/emails';
+const MAIL_FROM = env.MAIL_FROM || 'Bangla AI <onboarding@resend.dev>';
+// Signs admin tokens. Without TOKEN_SECRET a random one is used, so a
+// restart signs everyone out.
+const TOKEN_SECRET = env.TOKEN_SECRET || crypto.randomBytes(32).toString('hex');
+const TOKEN_DAYS = 30;
+const CODE = {
+  ttlMs: 10 * 60e3, // a code works for 10 minutes
+  maxTries: 5, // wrong tries per code
+  sendGapMs: numEnvEarly('CODE_SEND_GAP_MS', 60e3), // at most one email a minute
+  sendsPerHour: 10, // and ten an hour
+};
+
+function numEnvEarly(name, fallback) {
+  const n = Number(env[name]);
+  return env[name] && Number.isFinite(n) ? n : fallback;
+}
+
+function normalizeEmail(s) {
   return String(s == null ? '' : s)
     .normalize('NFC')
     .replace(/[\u200B\u200C\u200D\u2060\uFEFF]/g, '')
-    .trim();
+    .trim()
+    .toLowerCase();
 }
 
-// ADMIN_LOGIN_PASSWORD, when set, takes priority over ADMIN_PASSWORD (it was
-// added because Render's form would not overwrite the old ADMIN_PASSWORD value).
-const ADMIN_PASSWORD = normalizePassword(env.ADMIN_LOGIN_PASSWORD || env.ADMIN_PASSWORD);
-// Signs admin tokens. Derived from the password when not set, so changing
-// the password signs everyone out.
-const TOKEN_SECRET =
-  env.TOKEN_SECRET ||
-  crypto.createHash('sha256').update(`bangla-ai:${ADMIN_PASSWORD}`).digest('hex');
-const TOKEN_HOURS = 12;
 // Optional shared key the main app sends in X-App-Key, to keep casual
 // strangers off the chat proxy. Not a real secret: it ships in the APK.
 const APP_KEY = env.APP_KEY || '';
@@ -329,7 +339,9 @@ function b64url(buf) {
 }
 
 function signToken() {
-  const payload = b64url(JSON.stringify({ exp: Date.now() + TOKEN_HOURS * 3600e3 }));
+  const payload = b64url(
+    JSON.stringify({ sub: ADMIN_EMAIL, exp: Date.now() + TOKEN_DAYS * 86400e3 }),
+  );
   const sig = b64url(crypto.createHmac('sha256', TOKEN_SECRET).update(payload).digest());
   return `${payload}.${sig}`;
 }
@@ -360,33 +372,156 @@ function safeEqual(a, b) {
   return crypto.timingSafeEqual(ha, hb);
 }
 
-// Failed login attempts per IP: at most 10 per 10 minutes. A successful
-// sign-in clears the count.
-const LOGIN_MAX_FAILS = 10;
-const attempts = new Map();
-function recentFails(ip) {
-  const now = Date.now();
-  const list = (attempts.get(ip) || []).filter((t) => now - t < 10 * 60e3);
-  attempts.set(ip, list);
-  return list;
-}
-function loginAllowed(ip) {
-  return recentFails(ip).length < LOGIN_MAX_FAILS;
-}
-function loginFailed(ip) {
-  recentFails(ip).push(Date.now());
-}
-function loginSucceeded(ip) {
-  attempts.delete(ip);
+// ---------------------------------------------------------------- sign-in codes
+//
+// One active code at a time, kept in memory as a hash (a free Render server
+// stays awake for 15 minutes after a request, longer than a code lives).
+
+let activeCode = null; // { hash, expires, tries }
+let sendTimes = []; // when codes were emailed, for the send limits
+const ipRequests = new Map(); // code requests per address, for abuse limits
+
+function hashCode(code) {
+  return crypto.createHmac('sha256', TOKEN_SECRET).update(`code:${code}`).digest('hex');
 }
 
-/** Why a password did not match, without logging the password itself. */
-function mismatchHint(got) {
-  const want = ADMIN_PASSWORD;
-  const parts = [`got ${[...got].length} chars, expected ${[...want].length}`];
-  if (got.toLowerCase() === want.toLowerCase()) parts.push('matches if capital letters are ignored');
-  else if (got.replace(/\s+/g, '') === want.replace(/\s+/g, '')) parts.push('matches if spaces are ignored');
-  return parts.join('; ');
+function newCode() {
+  return String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+}
+
+/** Code requests from one address: one a minute, twenty an hour. */
+function ipRequestWait(ip) {
+  const now = Date.now();
+  const list = (ipRequests.get(ip) || []).filter((t) => now - t < 3600e3);
+  ipRequests.set(ip, list);
+  if (list.length && now - list[list.length - 1] < CODE.sendGapMs) {
+    return Math.ceil((CODE.sendGapMs - (now - list[list.length - 1])) / 1000);
+  }
+  if (list.length >= 20) return Math.ceil((3600e3 - (now - list[0])) / 1000);
+  list.push(now);
+  return 0;
+}
+
+/** Seconds until another code may be emailed (0 = now). */
+function sendWait() {
+  const now = Date.now();
+  sendTimes = sendTimes.filter((t) => now - t < 3600e3);
+  const last = sendTimes[sendTimes.length - 1];
+  if (last && now - last < CODE.sendGapMs) return Math.ceil((CODE.sendGapMs - (now - last)) / 1000);
+  if (sendTimes.length >= CODE.sendsPerHour) return Math.ceil((3600e3 - (now - sendTimes[0])) / 1000);
+  return 0;
+}
+
+function codeEmail(code) {
+  const subject = `বাংলা এআই অ্যাডমিন কোড: ${code}`;
+  const text =
+    `আপনার বাংলা এআই অ্যাডমিন সাইন-ইন কোড: ${code}\n` +
+    `কোডটি ১০ মিনিট কাজ করবে, একবারই ব্যবহার করা যাবে।\n\n` +
+    `Your Bangla AI Admin sign-in code: ${code}\n` +
+    `It works for 10 minutes, once. If you didn't ask for it, ignore this email.`;
+  const html = `<div style="font-family:Arial,'Noto Sans Bengali',sans-serif;max-width:420px;margin:auto;padding:24px;color:#0f172a">
+<div style="background:#006a4e;color:#fff;border-radius:12px;padding:14px 18px;font-size:18px;font-weight:bold">বাংলা এআই অ্যাডমিন</div>
+<p style="font-size:15px;margin:20px 0 8px">আপনার সাইন-ইন কোড / Your sign-in code:</p>
+<p style="font-size:34px;letter-spacing:8px;font-weight:bold;margin:0 0 16px;color:#006a4e">${code}</p>
+<p style="font-size:13px;color:#475569;line-height:1.6">কোডটি ১০ মিনিট কাজ করবে, একবারই ব্যবহার করা যাবে।<br>It works for 10 minutes, once. If you didn't ask for it, ignore this email.</p>
+</div>`;
+  return { subject, text, html };
+}
+
+/** Emails the code through Resend. Throws with a short reason on failure. */
+async function mailCode(to, code) {
+  if (!RESEND_API_KEY) throw new Error('RESEND_API_KEY is not set');
+  const { subject, text, html } = codeEmail(code);
+  const r = await fetch(RESEND_API_URL, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: MAIL_FROM, to: [to], subject, text, html }),
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!r.ok) {
+    const body = (await r.text().catch(() => '')).slice(0, 300);
+    throw new Error(`Resend answered ${r.status}: ${body}`);
+  }
+}
+
+const GENERIC_SENT =
+  'যদি এই ইমেইলটি অ্যাডমিনের হয়, তাহলে একটি ৬ সংখ্যার কোড পাঠানো হয়েছে। ' +
+  'If this email belongs to the admin, a 6-digit code is on its way.';
+
+async function requestCode(req, res) {
+  const ip = clientIp(req);
+  const { email } = await readJson(req);
+  const given = normalizeEmail(email);
+  if (!given || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(given) || given.length > 254) {
+    throw Object.assign(bad('Enter a valid email address.', 400), { code: 'invalid_email' });
+  }
+  // This limit is per address and the same for every email, so it reveals
+  // nothing about which email is allowed.
+  const ipWait = ipRequestWait(ip);
+  if (ipWait) {
+    throw Object.assign(bad(`Wait ${ipWait} seconds before asking for another code.`, 429), {
+      code: 'too_soon',
+      retryAfter: ipWait,
+    });
+  }
+  // From here on, the answer is the same whether or not the email matched.
+  if (ADMIN_EMAIL && safeEqual(given, ADMIN_EMAIL)) {
+    const wait = sendWait();
+    if (wait) {
+      console.warn(`Admin code not sent: send limit (retry in ${wait}s).`);
+    } else {
+      const code = newCode();
+      sendTimes.push(Date.now());
+      try {
+        await mailCode(ADMIN_EMAIL, code);
+        activeCode = { hash: hashCode(code), expires: Date.now() + CODE.ttlMs, tries: 0 };
+        console.log('Admin sign-in code emailed.');
+      } catch (e) {
+        console.error(`Admin sign-in code could not be emailed: ${e.message}`);
+      }
+    }
+  } else {
+    console.warn('Admin code requested for an email that is not the admin email.');
+  }
+  return send(res, 200, {
+    ok: true,
+    message: GENERIC_SENT,
+    resendAfterSeconds: Math.round(CODE.sendGapMs / 1000),
+    expiresInMinutes: Math.round(CODE.ttlMs / 60e3),
+  });
+}
+
+async function verifyCode(req, res) {
+  const { email, code } = await readJson(req);
+  const given = normalizeEmail(email);
+  const digits = String(code == null ? '' : code).replace(/\D/g, '');
+  const wrong = (message, errCode, status = 401) => {
+    throw Object.assign(bad(message, status), { code: errCode });
+  };
+  if (digits.length !== 6) wrong('The code has 6 digits.', 'invalid_code', 400);
+  if (!activeCode) wrong('This code is wrong or no longer works. Ask for a new code.', 'invalid_code');
+  if (Date.now() > activeCode.expires) {
+    activeCode = null;
+    wrong('This code has expired. Ask for a new code.', 'expired_code');
+  }
+  const ok =
+    ADMIN_EMAIL && safeEqual(given, ADMIN_EMAIL) && safeEqual(hashCode(digits), activeCode.hash);
+  if (!ok) {
+    activeCode.tries += 1;
+    const left = CODE.maxTries - activeCode.tries;
+    console.warn(`Admin code wrong (${activeCode.tries} of ${CODE.maxTries} tries).`);
+    if (left <= 0) {
+      activeCode = null;
+      wrong('Too many wrong tries. Ask for a new code.', 'too_many_tries', 429);
+    }
+    throw Object.assign(bad(`Wrong code. ${left} ${left === 1 ? 'try' : 'tries'} left.`, 401), {
+      code: 'wrong_code',
+      triesLeft: left,
+    });
+  }
+  activeCode = null; // single use
+  console.log('Admin signed in with an email code.');
+  return send(res, 200, { token: signToken(), expiresInDays: TOKEN_DAYS, email: ADMIN_EMAIL });
 }
 
 function clientIp(req) {
@@ -550,7 +685,8 @@ async function route(req, res) {
       version: VERSION,
       store: store.kind,
       storeOk,
-      adminLogin: Boolean(ADMIN_PASSWORD),
+      adminLogin: 'email-code',
+      emailReady: Boolean(ADMIN_EMAIL && RESEND_API_KEY),
       time: new Date().toISOString(),
     });
   }
@@ -562,25 +698,13 @@ async function route(req, res) {
   }
   if (p === '/v1/chat' && m === 'POST') return chat(req, res);
 
+  if (p === '/admin/request-code' && m === 'POST') return requestCode(req, res);
+  if (p === '/admin/verify-code' && m === 'POST') return verifyCode(req, res);
   if (p === '/admin/login' && m === 'POST') {
-    if (!ADMIN_PASSWORD) throw bad('ADMIN_PASSWORD is not set on the server.', 503);
-    const ip = clientIp(req);
-    if (!loginAllowed(ip)) {
-      console.warn('Admin login refused: too many failed attempts from one address.');
-      throw Object.assign(bad('Too many wrong passwords. Wait 10 minutes and try again.', 429), {
-        code: 'rate_limited',
-      });
-    }
-    const { password } = await readJson(req);
-    const given = typeof password === 'string' ? normalizePassword(password) : '';
-    if (!given || !safeEqual(given, ADMIN_PASSWORD)) {
-      loginFailed(ip);
-      console.warn(`Admin login failed (${mismatchHint(given)}).`);
-      throw Object.assign(bad('Wrong password.', 401), { code: 'wrong_password' });
-    }
-    loginSucceeded(ip);
-    console.log('Admin login OK.');
-    return send(res, 200, { token: signToken(), expiresInHours: TOKEN_HOURS });
+    throw Object.assign(
+      bad('Password sign-in was replaced by an email code. Update the Admin app to 1.1.0.', 410),
+      { code: 'password_login_removed' },
+    );
   }
   if (p === '/admin/config' && m === 'GET') {
     requireAdmin(req);
@@ -602,7 +726,14 @@ function handler(req, res) {
     const status = e.status || 500;
     if (status >= 500 && status !== 503) console.error(e);
     if (res.headersSent) return res.end();
-    send(res, status, { error: { message: String(e.message || e), code: e.code || undefined } });
+    send(res, status, {
+      error: {
+        message: String(e.message || e),
+        code: e.code || undefined,
+        retryAfter: e.retryAfter,
+        triesLeft: e.triesLeft,
+      },
+    });
   });
 }
 
@@ -627,14 +758,10 @@ async function start({ port = PORT } = {}) {
 }
 
 if (require.main === module) {
-  if (!ADMIN_PASSWORD) console.warn('Warning: ADMIN_PASSWORD is not set; admin login is off.');
-  // Optional self-check: set ADMIN_PASSWORD_CHECK to the intended password to
-  // confirm ADMIN_PASSWORD was stored exactly. Logs only match/lengths.
-  if (env.ADMIN_PASSWORD_CHECK != null) {
-    const check = normalizePassword(env.ADMIN_PASSWORD_CHECK);
-    if (check && safeEqual(check, ADMIN_PASSWORD)) console.log('Admin password check: MATCH.');
-    else console.warn(`Admin password check: MISMATCH (${mismatchHint(check)}).`);
-  }
+  if (!ADMIN_EMAIL) console.warn('Warning: ADMIN_EMAIL is not set; admin sign-in is off.');
+  if (!RESEND_API_KEY) console.warn('Warning: RESEND_API_KEY is not set; sign-in codes cannot be emailed.');
+  if (!env.TOKEN_SECRET) console.warn('Warning: TOKEN_SECRET is not set; a restart signs the admin out.');
+  console.log(`Admin sign-in: email code (admin email set: ${Boolean(ADMIN_EMAIL)}, mailer set: ${Boolean(RESEND_API_KEY)}).`);
   start();
 }
 
@@ -646,5 +773,9 @@ module.exports = {
   seedConfig,
   verifyToken,
   signToken,
-  normalizePassword,
+  normalizeEmail,
+  codeEmail,
+  _expireForTest: () => {
+    if (activeCode) activeCode.expires = 0;
+  },
 };

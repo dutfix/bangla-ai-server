@@ -13,8 +13,11 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "22"
-      # Admin dashboard password. Render asks for it when you apply the Blueprint.
-      - key: ADMIN_PASSWORD
+      # The only email that can sign in to the Admin app (gets a 6-digit code).
+      - key: ADMIN_EMAIL
+        sync: false
+      # Resend API key (sending access) that emails the sign-in codes.
+      - key: RESEND_API_KEY
         sync: false
       # Neon connection string (postgresql://...neon.tech/neondb?sslmode=verify-full)
       - key: DATABASE_URL

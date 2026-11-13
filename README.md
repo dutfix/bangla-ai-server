@@ -18,7 +18,8 @@ it talks to `https://bangla-ai-server-1a46.onrender.com` unless you pass
 | GET | `/health` | anyone | `{"ok":true}`; fast, no database |
 | GET | `/v1/config` | app | models, default model, voice, speed, pitch, on/off switch (no key) |
 | POST | `/v1/chat` | app | OpenAI-style `{messages, model, stream}`; streams OmniRoute's reply |
-| POST | `/admin/login` | admin | `{password}` -> `{token}` (valid 12 hours) |
+| POST | `/admin/request-code` | none | `{email}`: emails a 6-digit code if it is `ADMIN_EMAIL` (same answer either way) |
+| POST | `/admin/verify-code` | none | `{email, code}` -> `{token}` (valid 30 days). Codes last 10 minutes, work once, 5 wrong tries |
 | GET | `/admin/config` | admin | full config; key shown only as `••••last4` |
 | PUT | `/admin/config` | admin | change any field; an empty `apiKey` keeps the old key |
 | POST | `/admin/test` | admin | sends one tiny message to OmniRoute with the stored or draft values |
@@ -37,14 +38,15 @@ lines (reply in Bangla, short spoken replies in calls).
    and creates `bangla-ai-server`, a free Node web service.
 4. Render asks for the values marked `sync: false`:
    - `DATABASE_URL`: the Neon connection string from step 2.
-   - `ADMIN_PASSWORD`: the password for the admin app. Use a long one.
+   - `ADMIN_EMAIL`: the only email that can sign in to the admin app.
+   - `RESEND_API_KEY`: a Resend key with sending access (emails the codes). On Resend's free plan without your own domain, it can only send to the Resend account's own email, so use that as `ADMIN_EMAIL`.
    - `OMNIROUTE_BASE_URL`, `OMNIROUTE_API_KEY`: optional starting values. You
      can leave them empty and set them in the admin app instead.
 5. Click **Apply**. The first build takes a few minutes.
 6. Open `https://<your-service>.onrender.com/health`. It should show
    `"ok":true` and `"storeOk":true`.
 7. Put that address in the admin app at first launch, sign in with
-   `ADMIN_PASSWORD`, and set the OmniRoute address, key, models and voice.
+   the 6-digit code emailed to `ADMIN_EMAIL`, and set the OmniRoute address, key, models and voice.
 
 Without a Blueprint: New > Web Service from this repo, Free instance, build
 command `npm install --omit=dev`, start command `node server.js`, health check
@@ -54,7 +56,9 @@ path `/health`, and the environment variables below.
 
 | Name | Needed | Meaning |
 | --- | --- | --- |
-| `ADMIN_PASSWORD` | yes | admin app password; changing it signs the admin out |
+| `ADMIN_EMAIL` | yes | the admin's email; sign-in codes go here |
+| `RESEND_API_KEY` | yes | Resend key that sends the codes (Render's free plan blocks SMTP) |
+| `MAIL_FROM` | no | sender, default `Bangla AI <onboarding@resend.dev>` |
 | `DATABASE_URL` | yes on Render | Postgres connection string (Neon) |
 | `CONFIG_TABLE` | no | table name, default `bangla_ai_config` |
 | `OMNIROUTE_BASE_URL` | no | first value of the OmniRoute address, e.g. `https://host/v1` |
@@ -63,7 +67,7 @@ path `/health`, and the environment variables below.
 | `DEFAULT_MODEL`, `SYSTEM_PROMPT` | no | first values |
 | `VOICE_NAME`, `VOICE_LOCALE`, `VOICE_SPEED`, `VOICE_PITCH` | no | first voice values (`bn-BD`, `1.0`, `1.0`) |
 | `APP_ENABLED`, `DISABLED_MESSAGE` | no | on/off switch and the message users see when off |
-| `TOKEN_SECRET` | no | signs admin tokens; derived from the password if unset |
+| `TOKEN_SECRET` | no | signs admin tokens and code hashes; random per start if unset |
 | `APP_KEY` | no | if set, the app must send it as `X-App-Key` (light abuse filter) |
 
 The environment values are only the starting point. After the first start the
@@ -94,6 +98,6 @@ config lives in the database, and the admin app changes it there.
 
 ```
 npm install
-ADMIN_PASSWORD=secret node server.js        # stores config in data/config.json
+ADMIN_EMAIL=you@example.com RESEND_API_KEY=re_... node server.js        # stores config in data/config.json
 npm test                                    # 9 tests with a fake OmniRoute
 ```

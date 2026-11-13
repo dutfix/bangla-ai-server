@@ -10,8 +10,10 @@ const path = require('node:path');
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bai-'));
 process.env.CONFIG_FILE = path.join(dir, 'config.json');
-// Trailing space and a decomposed Bangla vowel sign, as a web form might store it.
-process.env.ADMIN_PASSWORD = 'test-pass\u09CB ';
+process.env.ADMIN_EMAIL = ' Admin@Example.com ';
+process.env.RESEND_API_KEY = 're_test_key';
+process.env.TOKEN_SECRET = 'test-secret';
+process.env.CODE_SEND_GAP_MS = '50';
 process.env.MODELS = 'auto,auto/fast';
 delete process.env.DATABASE_URL;
 
@@ -36,10 +38,30 @@ const fake = http.createServer((req, res) => {
   });
 });
 
+// Fake Resend: remembers the last email.
+let lastMail = null;
+let mailFails = false;
+const mailer = http.createServer((req, res) => {
+  let body = '';
+  req.on('data', (c) => (body += c));
+  req.on('end', () => {
+    if (mailFails) {
+      res.writeHead(403);
+      return res.end('{"message":"nope"}');
+    }
+    lastMail = { auth: req.headers.authorization, body: JSON.parse(body) };
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end('{"id":"x"}');
+  });
+});
+const mailedCode = () => lastMail.body.text.match(/(\d{6})/)[1];
+
 let base;
 let server;
 test.before(async () => {
   await new Promise((r) => fake.listen(0, r));
+  await new Promise((r) => mailer.listen(0, r));
+  process.env.RESEND_API_URL = `http://127.0.0.1:${mailer.address().port}/emails`;
   const { start } = require('../server.js');
   server = await start({ port: 0 });
   base = `http://127.0.0.1:${server.address().port}`;
@@ -47,12 +69,19 @@ test.before(async () => {
 test.after(() => {
   server.close();
   fake.close();
+  mailer.close();
 });
 
+let ipN = 0;
 const j = async (p, opts = {}) => {
+  ipN += 1;
   const r = await fetch(base + p, {
     ...opts,
-    headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Forwarded-For': `10.0.0.${ipN % 250}`,
+      ...(opts.headers || {}),
+    },
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
   return { status: r.status, body: await r.json().catch(() => null) };
@@ -74,12 +103,78 @@ test('public config has no key and is not ready yet', async () => {
   assert.equal('apiKey' in r.body, false);
 });
 
-test('admin login: wrong then right', async () => {
-  assert.equal((await j('/admin/login', { method: 'POST', body: { password: 'nope' } })).status, 401);
-  const r = await j('/admin/login', { method: 'POST', body: { password: ' test-pass\u09C7\u09BE\n' } });
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const ask = (email) => j('/admin/request-code', { method: 'POST', body: { email } });
+const verify = (email, code) => j('/admin/verify-code', { method: 'POST', body: { email, code } });
+
+test('email code sign-in: generic answer, code mailed only to the admin', async () => {
+  lastMail = null;
+  const other = await ask('someone@else.com');
+  assert.equal(other.status, 200);
+  assert.equal(lastMail, null);
+  await sleep(60);
+  const r = await ask('ADMIN@example.com ');
   assert.equal(r.status, 200);
+  assert.deepEqual(Object.keys(r.body).sort(), Object.keys(other.body).sort());
+  assert.equal(r.body.message, other.body.message);
+  assert.equal(lastMail.auth, 'Bearer re_test_key');
+  assert.deepEqual(lastMail.body.to, ['admin@example.com']);
+  assert.match(lastMail.body.subject, /\d{6}/);
+  assert.equal((await ask('not-an-email')).status, 400);
+  // The password route is gone.
+  assert.equal((await j('/admin/login', { method: 'POST', body: { password: 'x' } })).status, 410);
+});
+
+test('email code sign-in: wrong code, then right code once', async () => {
+  await sleep(60);
+  await ask('admin@example.com');
+  const code = mailedCode();
+  const wrongCode = code === '000000' ? '111111' : '000000';
+  const w = await verify('admin@example.com', wrongCode);
+  assert.equal(w.status, 401);
+  assert.equal(w.body.error.code, 'wrong_code');
+  assert.equal(w.body.error.triesLeft, 4);
+  const r = await verify(' Admin@Example.com', code.split('').join(' '));
+  assert.equal(r.status, 200);
+  assert.equal(r.body.expiresInDays, 30);
   token = r.body.token;
   assert.ok(token);
+  // Single use.
+  assert.equal((await verify('admin@example.com', code)).status, 401);
+});
+
+test('email code sign-in: five wrong tries end the code; wrong email never works', async () => {
+  await sleep(60);
+  await ask('admin@example.com');
+  const code = mailedCode();
+  assert.equal((await verify('other@example.com', code)).body.error.code, 'wrong_code');
+  const wrongCode = code === '000000' ? '111111' : '000000';
+  let last;
+  for (let i = 0; i < 4; i++) last = await verify('admin@example.com', wrongCode);
+  assert.equal(last.status, 429);
+  assert.equal(last.body.error.code, 'too_many_tries');
+  assert.equal((await verify('admin@example.com', code)).status, 401);
+});
+
+test('email code sign-in: expired code and send limits', async () => {
+  await sleep(60);
+  await ask('admin@example.com');
+  const { _expireForTest } = require('../server.js');
+  _expireForTest();
+  const e = await verify('admin@example.com', mailedCode());
+  assert.equal(e.body.error.code, 'expired_code');
+  // One address asking twice within the gap is told to wait.
+  const h = { 'X-Forwarded-For': '10.9.9.9' };
+  await j('/admin/request-code', { method: 'POST', headers: h, body: { email: 'a@b.co' } });
+  const again = await j('/admin/request-code', { method: 'POST', headers: h, body: { email: 'a@b.co' } });
+  assert.equal(again.status, 429);
+  assert.equal(again.body.error.code, 'too_soon');
+  // A mailer failure still gives the generic answer.
+  await sleep(60);
+  mailFails = true;
+  const f = await ask('admin@example.com');
+  mailFails = false;
+  assert.equal(f.status, 200);
 });
 
 test('admin endpoints need a token', async () => {
@@ -179,14 +274,4 @@ test('disabled switch blocks chat with the message', async () => {
   assert.equal(r.body.error.message, 'বন্ধ');
   assert.equal((await j('/v1/config')).body.enabled, false);
   await j('/admin/config', { method: 'PUT', headers: auth, body: { enabled: true } });
-});
-
-test('admin login: wrong password says so, too many fails are limited', async () => {
-  const bad1 = await j('/admin/login', { method: 'POST', body: { password: 'TEST-PASS' } });
-  assert.equal(bad1.status, 401);
-  assert.equal(bad1.body.error.code, 'wrong_password');
-  let last;
-  for (let i = 0; i < 10; i++) last = await j('/admin/login', { method: 'POST', body: { password: 'x' } });
-  assert.equal(last.status, 429);
-  assert.equal(last.body.error.code, 'rate_limited');
 });

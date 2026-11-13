@@ -48,7 +48,10 @@ const ALLOW_PRIVATE = env.TOOLS_ALLOW_PRIVATE === '1';
 function guardedLookup(hostname, options, cb) {
   dns.lookup(hostname, { ...options, all: true }, (err, list) => {
     if (err) return cb(err);
-    const ok = list.filter((a) => ALLOW_PRIVATE || !isPrivateIp(a.address));
+    // IPv4 first: some hosts (Render among them) have no IPv6 route out.
+    const ok = list
+      .filter((a) => ALLOW_PRIVATE || !isPrivateIp(a.address))
+      .sort((a, b) => a.family - b.family);
     if (!ok.length) return cb(Object.assign(new Error('blocked address'), { code: 'EBLOCKED' }));
     if (options && options.all) return cb(null, ok);
     cb(null, ok[0].address, ok[0].family);
@@ -59,7 +62,18 @@ function guardedLookup(hostname, options, cb) {
  * GET or POST a public http(s) URL. Follows up to 4 redirects, stops after
  * maxBytes, gives up after timeoutMs. Resolves { status, url, type, text }.
  */
-function safeFetch(url, { method = 'GET', body = null, headers = {}, maxBytes = 1_500_000, timeoutMs = 12000, redirects = 4 } = {}) {
+async function safeFetch(url, opts = {}) {
+  try {
+    return await fetchOnce(url, opts);
+  } catch (e) {
+    // One retry for a dropped connection; not for refusals or bad input.
+    if (!/AggregateError|ECONNRESET|socket hang up|EAI_AGAIN|ETIMEDOUT|took too long/i.test(`${e.name} ${e.code} ${e.message}`)) throw e;
+    await new Promise((r) => setTimeout(r, 400));
+    return fetchOnce(url, opts);
+  }
+}
+
+function fetchOnce(url, { method = 'GET', body = null, headers = {}, maxBytes = 1_500_000, timeoutMs = 12000, redirects = 4 } = {}) {
   return new Promise((resolve, reject) => {
     let u;
     try {
@@ -83,6 +97,7 @@ function safeFetch(url, { method = 'GET', body = null, headers = {}, maxBytes = 
       {
         method,
         lookup: guardedLookup,
+        autoSelectFamily: false,
         headers: {
           'User-Agent': UA,
           Accept: 'text/html,application/xhtml+xml,application/json,text/plain;q=0.9,*/*;q=0.5',
@@ -101,7 +116,7 @@ function safeFetch(url, { method = 'GET', body = null, headers = {}, maxBytes = 
           const next = new URL(res.headers.location, u).toString();
           const again = status === 307 || status === 308;
           return resolve(
-            safeFetch(next, {
+            fetchOnce(next, {
               method: again ? method : 'GET',
               body: again ? body : null,
               headers: again ? headers : {},
@@ -147,9 +162,10 @@ function safeFetch(url, { method = 'GET', body = null, headers = {}, maxBytes = 
     );
     req.on('timeout', () => req.destroy(Object.assign(new Error('The page took too long to answer.'), { code: 'ETIMEDOUT' })));
     req.on('error', (e) => {
+      if (e.name === 'AggregateError' && e.errors && e.errors[0]) e = Object.assign(e.errors[0], { name: 'AggregateError' });
       if (e.code === 'EBLOCKED') reject(new Error('Private addresses cannot be read.'));
       else if (e.code === 'ENOTFOUND') reject(new Error(`No website found at ${u.hostname}.`));
-      else reject(new Error(e.message || String(e)));
+      else reject(Object.assign(new Error(e.message || e.code || String(e)), { code: e.code, name: e.name }));
     });
     if (body) req.write(body);
     req.end();
@@ -301,21 +317,60 @@ const WMO = {
 
 async function weather({ place }) {
   const name = String(place || 'Dhaka').trim().slice(0, 100);
-  const g = JSON.parse(
-    (await safeFetch(`https://geocoding-api.open-meteo.com/v1/search?count=1&language=en&name=${encodeURIComponent(name)}`, { timeoutMs: 8000 })).text,
-  );
+  try {
+    return await openMeteo(name);
+  } catch (e) {
+    if (/Could not find a place/.test(e.message)) throw e;
+    console.warn(`get_weather: Open-Meteo failed (${e.message}), trying wttr.in`);
+    return wttr(name);
+  }
+}
+
+async function wttr(name) {
+  const r = await safeFetch(`https://wttr.in/${encodeURIComponent(name)}?format=j1`, { timeoutMs: 10000, headers: { Accept: 'application/json' } });
+  if (r.status !== 200) throw new Error(`The weather service answered ${r.status}.`);
+  const j = JSON.parse(r.text);
+  const c = (j.current_condition || [])[0] || {};
+  const area = (j.nearest_area || [])[0] || {};
+  const v = (x) => (x && x[0] && x[0].value) || '';
+  return {
+    place: [v(area.areaName), v(area.region), v(area.country)].filter(Boolean).join(', ') || name,
+    now: {
+      time: c.localObsDateTime,
+      temperature_c: Number(c.temp_C),
+      feels_like_c: Number(c.FeelsLikeC),
+      humidity_pct: Number(c.humidity),
+      wind_kmh: Number(c.windspeedKmph),
+      precipitation_mm: Number(c.precipMM),
+      sky: v(c.weatherDesc),
+    },
+    days: (j.weather || []).map((d) => ({
+      date: d.date,
+      min_c: Number(d.mintempC),
+      max_c: Number(d.maxtempC),
+      rain_chance_pct: Math.max(0, ...(d.hourly || []).map((h) => Number(h.chanceofrain) || 0)),
+      sky: v(((d.hourly || [])[4] || {}).weatherDesc),
+      sunrise: d.astronomy && d.astronomy[0] && d.astronomy[0].sunrise,
+      sunset: d.astronomy && d.astronomy[0] && d.astronomy[0].sunset,
+    })),
+    source: 'wttr.in',
+  };
+}
+
+async function openMeteo(name) {
+  const gr = await safeFetch(`https://geocoding-api.open-meteo.com/v1/search?count=1&language=en&name=${encodeURIComponent(name)}`, { timeoutMs: 8000 });
+  if (gr.status !== 200) throw new Error(`geocoding answered ${gr.status}`);
+  const g = JSON.parse(gr.text);
   const loc = g.results && g.results[0];
   if (!loc) throw new Error(`Could not find a place called "${name}". Try the city name in English.`);
-  const f = JSON.parse(
-    (
-      await safeFetch(
+  const fr = await safeFetch(
         `https://api.open-meteo.com/v1/forecast?latitude=${loc.latitude}&longitude=${loc.longitude}&timezone=auto&forecast_days=4` +
           '&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,precipitation' +
           '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset',
         { timeoutMs: 8000 },
-      )
-    ).text,
-  );
+      );
+  if (fr.status !== 200) throw new Error(`forecast answered ${fr.status}`);
+  const f = JSON.parse(fr.text);
   const c = f.current || {};
   const d = f.daily || {};
   return {

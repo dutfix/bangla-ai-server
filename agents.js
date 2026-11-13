@@ -84,7 +84,7 @@ const fn = (name, description, properties, required = []) => ({
 });
 
 const SERVER_TOOLS = [
-  fn('web_search', 'Search the web for current information, news, prices, facts, docs. Returns titles, links and snippets. Read the best results with read_webpage before relying on them.', {
+  fn('web_search', 'Search the web for current information, news, prices, facts, docs. Returns titles, links and snippets. Read the best one or two results with read_webpage when the snippets are not enough; one or two searches are usually enough.', {
     query: { type: 'string', description: 'The search words (English often finds more; Bangla works too).' },
     count: { type: 'integer', description: 'How many results, 1 to 10 (default 6).' },
   }, ['query']),
@@ -188,7 +188,7 @@ function agentPrompt(agent, ctx, { background = false, toolsOn = true } = {}) {
         ? 'You are running as a background task on the server: the user is not watching. Work through the goal on your own with your tools (search, read several sources, calculate), then write the complete final result in Markdown, with source links. Do not ask questions; make sensible choices and say what you assumed.'
         : [
             'How you work:',
-            '- Use your tools whenever they make the answer better, without asking first: web_search then read_webpage for anything current or checkable (news, prices, versions, events, people), get_weather, get_time, calculate for exact numbers.',
+            '- Use your tools whenever they make the answer better, without asking first: web_search (then read_webpage when needed) for anything current or checkable (news, prices, versions, events, people), get_weather, get_time, calculate for exact numbers. Be efficient: usually one to three tool calls, then answer. If a tool fails, try once another way, then tell the user.',
             '- Memory: when the user tells you something lasting about themselves, save it with remember on your own. Use what you remember naturally; don\'t recite it.',
             '- Notes and files: when you write something the user will want to keep (a plan, code, a draft, a summary), offer to save it, or save it when they ask, with save_note.',
             '- Reminders and routines: set_reminder for "remind me" or "every morning..." requests. Work out the exact time from the user\'s local time below.',
@@ -456,10 +456,19 @@ async function runAgent({ cfg, model, messages, maxTokens, temperature, signal, 
   let full = '';
   let used = 0;
   for (let round = 0; round <= maxRounds; round++) {
+    const last = round === maxRounds;
     const body = { model, messages, stream: true };
-    if (useTools && round < maxRounds) {
+    if (useTools) {
+      // The last round keeps the tool list (the history has tool calls,
+      // and some providers refuse those without it) but allows no more.
       body.tools = available;
-      body.tool_choice = 'auto';
+      body.tool_choice = last ? 'none' : 'auto';
+      if (last) {
+        body.messages = [
+          ...messages,
+          { role: 'system', content: 'You have used your tools enough for this reply. Now answer the user fully with what you found. Do not call any more tools.' },
+        ];
+      }
     }
     if (maxTokens) body.max_tokens = maxTokens;
     if (Number.isFinite(temperature)) body.temperature = temperature;
@@ -484,7 +493,14 @@ async function runAgent({ cfg, model, messages, maxTokens, temperature, signal, 
       full += c;
       emit.text(c);
     });
-    if (!r.calls.length) return { text: full, toolsUsed: used };
+    if (!r.calls.length || last) {
+      if (!full.trim()) {
+        const sorry = 'দুঃখিত, এবার উত্তরটা তৈরি করতে পারিনি। আরেকবার জিজ্ঞেস করবেন?';
+        full = sorry;
+        emit.text(sorry);
+      }
+      return { text: full, toolsUsed: used };
+    }
     // Keep the assistant's tool request in the history, then each result.
     const calls = r.calls.map((c) => ({ ...c, id: c.id || newId('call_') }));
     const assistant = {

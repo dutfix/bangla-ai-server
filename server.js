@@ -37,7 +37,9 @@ function normalizePassword(s) {
     .trim();
 }
 
-const ADMIN_PASSWORD = normalizePassword(env.ADMIN_PASSWORD);
+// ADMIN_LOGIN_PASSWORD, when set, takes priority over ADMIN_PASSWORD (it was
+// added because Render's form would not overwrite the old ADMIN_PASSWORD value).
+const ADMIN_PASSWORD = normalizePassword(env.ADMIN_LOGIN_PASSWORD || env.ADMIN_PASSWORD);
 // Signs admin tokens. Derived from the password when not set, so changing
 // the password signs everyone out.
 const TOKEN_SECRET =

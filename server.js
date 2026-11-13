@@ -22,10 +22,12 @@ const fs = require('node:fs');
 const path = require('node:path');
 const voice = require('./voice');
 const web = require('./web');
+const agents = require('./agents');
+const { makeTasks } = require('./tasks');
 
 const env = process.env;
 const PORT = Number(env.PORT || 10000);
-const VERSION = '1.2.0';
+const VERSION = '1.3.0';
 
 // Admin sign-in is passwordless: the admin enters their email, the server
 // emails a 6-digit code (through Resend's HTTP API: Render's free plan blocks
@@ -72,7 +74,7 @@ const CONFIG_TABLE = /^[a-z_][a-z0-9_]{0,62}$/.test(env.CONFIG_TABLE || '')
   : 'bangla_ai_config';
 
 const LIMITS = {
-  bodyBytes: 256 * 1024,
+  bodyBytes: 512 * 1024,
   messages: 60,
   messageChars: 16000,
   upstreamTimeoutMs: 120000,
@@ -777,6 +779,9 @@ function emptyDay() {
     errorKinds: {},
     devices: [],
     newDevices: 0,
+    agents: {},
+    tools: {},
+    tasks: 0,
   };
 }
 
@@ -941,6 +946,20 @@ function statsView(n = 30) {
     month: sumDays(lastDays(30)),
     range: sumDays(days),
     totalDevices: deviceSet.size,
+    agents: (() => {
+      // Messages per agent, tool uses and background tasks over the range.
+      const a = {};
+      const t = {};
+      let tasksN = 0;
+      for (const k of days) {
+        const d = usage.days[k];
+        if (!d) continue;
+        for (const [x, v] of Object.entries(d.agents || {})) a[x] = (a[x] || 0) + v;
+        for (const [x, v] of Object.entries(d.tools || {})) t[x] = (t[x] || 0) + v;
+        tasksN += d.tasks || 0;
+      }
+      return { messages: a, tools: t, tasks: tasksN };
+    })(),
     series: days.map((k) => {
       const d = usage.days[k] || emptyDay();
       return {
@@ -982,6 +1001,7 @@ async function chat(req, res) {
   if (!cfg.enabled) throw Object.assign(bad(cfg.disabledMessage, 503), { code: 'disabled' });
   const started = Date.now();
   const body = await readJson(req);
+  if (body.agent !== undefined && body.agent !== null && body.agent !== '') return agentChat(req, res, body, cfg, started);
   const call = body.call === true;
   let app = cleanMessages(body.messages);
   if (call) {
@@ -1052,6 +1072,197 @@ async function chat(req, res) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+// ---------------------------------------------------------------- agents
+
+/** The system prompt for an agent: who it is and what it knows about the
+ * user first, then the admin's prompt and style, then the app's lines. */
+function agentSystem(cfg, agent, ctx, appLines, { call = false, background = false } = {}) {
+  return [
+    agents.agentPrompt(agent, ctx, { background }),
+    cfg.systemPrompt ? `Instructions from the app's owner (follow them; you are still ${agent.nameEn}):\n${cfg.systemPrompt}` : '',
+    background ? '' : cfg.stylePrompt,
+    call ? cfg.callPrompt : '',
+    call ? 'On a voice call: use tools only when the answer needs them (current facts, a reminder, a note), and say a few words first, like "দেখছি...", so the user is not left in silence.' : '',
+    ...appLines,
+  ]
+    .filter((s) => s && s.trim())
+    .join('\n\n');
+}
+
+let tasks = null;
+function taskEngine() {
+  return (tasks ||= makeTasks({
+    run: async (t, { signal, onStep }) => {
+      const agent = agents.agentOf(t.agent) || agents.AGENTS[0];
+      const ctx = agents.cleanContext(t.ctx || {});
+      const cfg = config;
+      const day0 = day();
+      day0.tasks = (day0.tasks || 0) + 1;
+      const messages = [
+        { role: 'system', content: agentSystem(cfg, agent, ctx, [], { background: true }) },
+        { role: 'user', content: `Background task: ${t.title}\n\n${t.goal}` },
+      ];
+      const out = await agents.runAgent({
+        cfg,
+        model: cfg.defaultModel,
+        messages,
+        maxTokens: 4096,
+        signal,
+        maxRounds: 10,
+        emit: {
+          text: () => {},
+          event: (e) => {
+            if (e.type === 'tool' && e.phase === 'start') onStep({ tool: e.name, detail: e.detail });
+          },
+        },
+        env: { ctx, agent, ip: `task:${t.id}`, background: true },
+        deps: { callOmniRoute, upstreamError },
+      });
+      return out.text;
+    },
+  }));
+}
+
+async function agentChat(req, res, body, cfg, started) {
+  const agent = agents.agentOf(body.agent);
+  if (!agent) throw bad('Unknown agent.');
+  const call = body.call === true;
+  const ctx = agents.cleanContext(body.context);
+  let app = cleanMessages(body.messages);
+  const appLines = app.filter((m) => m.role === 'system').map((m) => m.content);
+  let convo = app.filter((m) => m.role !== 'system');
+  if (call) convo = convo.slice(-cfg.callHistory);
+  const model = call ? callModelOf(cfg) : cfg.models.includes(body.model) ? body.model : cfg.defaultModel;
+  const stream = body.stream !== false;
+  const messages = [{ role: 'system', content: agentSystem(cfg, agent, ctx, appLines, { call }) }, ...convo];
+  let maxTokens = Number.isFinite(body.max_tokens) ? Math.min(Math.max(1, body.max_tokens), 4096) : undefined;
+  if (call) maxTokens = Math.min(maxTokens || Infinity, cfg.callMaxTokens);
+  const temperature = Number.isFinite(body.temperature) ? Math.min(Math.max(0, body.temperature), 2) : undefined;
+  {
+    const d = day();
+    if (call) d.callTurns += 1;
+    else d.chats += 1;
+    d.userMessages += 1;
+    bump(d.models, model);
+    d.agents = d.agents || {};
+    bump(d.agents, agent.id);
+    noteDevice(req);
+  }
+
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), LIMITS.upstreamTimeoutMs * 2);
+  res.on('close', () => {
+    if (!res.writableEnded) ctl.abort();
+  });
+  const events = [];
+  let first = true;
+  const head = () => {
+    if (res.headersSent) return;
+    res.writeHead(200, {
+      'Content-Type': stream ? 'text/event-stream; charset=utf-8' : 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'X-Accel-Buffering': 'no',
+      'X-Model': model,
+      'X-Agent': agent.id,
+      ...CORS,
+    });
+  };
+  const write = (obj) => {
+    if (!stream || res.destroyed) return;
+    head();
+    res.write(`data: ${JSON.stringify(obj)}\n\n`);
+  };
+  const emit = {
+    text: (c) => {
+      if (first) {
+        first = false;
+        noteTime(call ? 'call' : 'chat', Date.now() - started);
+      }
+      write({ choices: [{ index: 0, delta: { content: c } }] });
+    },
+    event: (e) => {
+      if (e.type === 'tool' && e.phase === 'start') {
+        const d = day();
+        d.tools = d.tools || {};
+        bump(d.tools, e.name);
+      }
+      events.push(e);
+      write({ bangla_event: e });
+    },
+  };
+  // Keeps proxies from closing a quiet stream while a tool runs.
+  const ping = stream ? setInterval(() => !res.destroyed && res.headersSent && res.write(': ping\n\n'), 15000) : null;
+  try {
+    if (stream) head();
+    const out = await agents.runAgent({
+      cfg,
+      model,
+      messages,
+      maxTokens,
+      temperature,
+      signal: ctl.signal,
+      maxRounds: call ? 3 : 6,
+      emit,
+      env: {
+        ctx,
+        agent,
+        ip: clientIp(req),
+        background: false,
+        startTask: (o) => taskEngine().start(o),
+      },
+      deps: { callOmniRoute, upstreamError },
+    });
+    if (stream) {
+      res.write('data: [DONE]\n\n');
+      return res.end();
+    }
+    return send(res, 200, {
+      model,
+      agent: agent.id,
+      choices: [{ index: 0, message: { role: 'assistant', content: out.text }, finish_reason: 'stop' }],
+      events,
+    });
+  } catch (e) {
+    const aborted = e && e.name === 'AbortError';
+    if (!aborted && !res.destroyed) noteError(call ? 'call' : 'chat', e.message || e);
+    if (res.headersSent) {
+      if (!aborted && !res.destroyed) res.write(`data: ${JSON.stringify({ error: { message: String(e.message || e) } })}\n\n`);
+      return res.end();
+    }
+    throw e.status ? e : Object.assign(bad(String(e.message || e), 502));
+  } finally {
+    clearTimeout(timer);
+    if (ping) clearInterval(ping);
+  }
+}
+
+async function startTaskRoute(req, res) {
+  if (APP_KEY && req.headers['x-app-key'] !== APP_KEY) throw bad('Unknown app.', 401);
+  if (!config.enabled) throw Object.assign(bad(config.disabledMessage, 503), { code: 'disabled' });
+  if (!config.baseUrl || !config.apiKey) throw bad('The server has no OmniRoute address or key yet. Set them in the admin app.', 503);
+  const body = await readJson(req);
+  const agent = agents.agentOf(body.agent);
+  if (!agent) throw bad('Unknown agent.');
+  const goal = typeof body.goal === 'string' ? body.goal.trim().slice(0, 4000) : '';
+  if (!goal) throw bad('A task needs a goal.');
+  const title = typeof body.title === 'string' && body.title.trim() ? body.title.trim().slice(0, 120) : goal.slice(0, 60);
+  const t = await taskEngine().start({ agent: agent.id, title, goal, ctx: agents.cleanContext(body.context), ip: clientIp(req) });
+  noteDevice(req);
+  return send(res, 200, { task: { id: t.id, token: t.token, title: t.title, agent: agent.id, status: 'queued' } });
+}
+
+async function taskStatusRoute(req, res) {
+  const body = await readJson(req);
+  return send(res, 200, { tasks: await taskEngine().status(body.tasks) });
+}
+
+async function cancelTaskRoute(req, res, id) {
+  const body = await readJson(req);
+  const t = await taskEngine().cancel(id, String(body.token || ''));
+  if (!t) throw bad('Task not found.', 404);
+  return send(res, 200, { task: t });
 }
 
 async function testConnection(req, res) {
@@ -1260,6 +1471,13 @@ async function route(req, res) {
     return send(res, 200, publicConfig(config));
   }
   if (p === '/v1/chat' && m === 'POST') return chat(req, res);
+  if (p === '/v1/agents' && m === 'GET') return send(res, 200, { agents: agents.publicAgents() });
+  if (p === '/v1/tasks' && m === 'POST') return startTaskRoute(req, res);
+  if (p === '/v1/tasks/status' && m === 'POST') return taskStatusRoute(req, res);
+  {
+    const tm = p.match(/^\/v1\/tasks\/(t[0-9a-f]{12})\/cancel$/);
+    if (tm && m === 'POST') return cancelTaskRoute(req, res, tm[1]);
+  }
   if (p === '/v1/tts' && m === 'POST') return tts(req, res);
 
   if (p === '/admin/setup-mailer' && m === 'POST') return setupMailer(req, res);

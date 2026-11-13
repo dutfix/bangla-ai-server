@@ -499,7 +499,7 @@ async function runAgent({ cfg, model, messages, maxTokens, temperature, signal, 
         full = sorry;
         emit.text(sorry);
       }
-      return { text: full, toolsUsed: used };
+      return { text: full, finalText: r.text.trim() ? r.text : full, toolsUsed: used };
     }
     // Keep the assistant's tool request in the history, then each result.
     const calls = r.calls.map((c) => ({ ...c, id: c.id || newId('call_') }));
@@ -537,7 +537,7 @@ async function runAgent({ cfg, model, messages, maxTokens, temperature, signal, 
       messages.push({ role: 'tool', tool_call_id: c.id, content });
     }
   }
-  return { text: full, toolsUsed: used };
+  return { text: full, finalText: full, toolsUsed: used };
 }
 
 module.exports = { AGENTS, agentOf, publicAgents, cleanContext, agentPrompt, runAgent, readStream, runTool, SERVER_TOOLS, DEVICE_TOOLS, DEVICE_NAMES };

@@ -1120,7 +1120,8 @@ function taskEngine() {
         env: { ctx, agent, ip: `task:${t.id}`, background: true },
         deps: { callOmniRoute, upstreamError },
       });
-      return out.text;
+      // The report is the last answer, without the "let me check" lines.
+      return out.finalText || out.text;
     },
   }));
 }

@@ -1016,6 +1016,12 @@ abstract class AppLocalizations {
   /// **'Voice error: {error}'**
   String voiceError(String error);
 
+  /// No description provided for @voiceOff.
+  ///
+  /// In en, this message translates to:
+  /// **'Voice is off for now. The admin will turn it on soon.'**
+  String get voiceOff;
+
   /// No description provided for @micPermission.
   ///
   /// In en, this message translates to:

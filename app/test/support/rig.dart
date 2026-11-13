@@ -39,6 +39,7 @@ class FakeLlm extends LlmClient {
     List<Map<String, String>> messages, {
     String? model,
     void Function()? onWaking,
+    bool call = false,
   }) async* {
     cancelled = false;
     for (final word in streamedReply.split(' ')) {
@@ -91,13 +92,15 @@ class FakeCall extends CallController {
   Future<void> interrupt() async {}
 }
 
-Future<AppServices> rig() async {
+/// [voice]: the admin has voice on (call button, read aloud) or off.
+Future<AppServices> rig({bool voice = true}) async {
   SharedPreferences.setMockInitialValues({'voiceSetupPrompted': true});
   final settings = SettingsStore(
     clientFactory: () => MockClient(
       (_) async => http.Response(
         '{"enabled":true,"models":["auto","auto/fast"],'
-        '"defaultModel":"auto","ready":true}',
+        '"defaultModel":"auto","ready":true,'
+        '"voiceEnabled":$voice,"voiceMode":"${voice ? 'device' : 'off'}"}',
         200,
       ),
     ),

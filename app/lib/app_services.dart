@@ -21,7 +21,8 @@ class AppServices {
 
   final SettingsStore settings;
 
-  /// Speaks with the chosen Microsoft Bangla voice.
+  /// Speaks with the admin's voice: the phone's Bangla voice or the
+  /// admin's cloud voice.
   final Speaker speaker;
 
   /// The phone's speech recognizer, used by voice calls.

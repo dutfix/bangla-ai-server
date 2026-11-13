@@ -52,7 +52,6 @@ void main() {
                   onNewChat: () {},
                   onOpen: (_) {},
                   onDeleted: (_) {},
-                  onVoices: () {},
                   onSettings: () {},
                 ),
               ),

@@ -514,6 +514,10 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get voiceOff =>
+      'Voice is off for now. The admin will turn it on soon.';
+
+  @override
   String get micPermission => 'Microphone permission is needed for calls.';
 
   @override

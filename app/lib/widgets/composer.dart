@@ -14,7 +14,7 @@ class Composer extends StatefulWidget {
     required this.generating,
     required this.onSend,
     required this.onStop,
-    required this.onVoiceCall,
+    this.onVoiceCall,
     this.maxLines = 6,
     this.focusNode,
   });
@@ -23,7 +23,9 @@ class Composer extends StatefulWidget {
   final bool generating;
   final ValueChanged<String> onSend;
   final VoidCallback onStop;
-  final VoidCallback onVoiceCall;
+
+  /// Null when the admin has voice off: the button is a send button.
+  final VoidCallback? onVoiceCall;
 
   /// How tall the box may grow before it scrolls.
   final int maxLines;
@@ -103,12 +105,13 @@ class _ComposerState extends State<Composer> {
           _ActionButton(
             mode: widget.generating
                 ? _Mode.stop
-                : hasText
+                : hasText || widget.onVoiceCall == null
                 ? _Mode.send
                 : _Mode.voice,
+            enabled: widget.generating || hasText || widget.onVoiceCall != null,
             onSend: _send,
             onStop: widget.onStop,
-            onVoice: widget.onVoiceCall,
+            onVoice: widget.onVoiceCall ?? () {},
           ),
         ],
       ),
@@ -124,9 +127,11 @@ class _ActionButton extends StatelessWidget {
     required this.onSend,
     required this.onStop,
     required this.onVoice,
+    this.enabled = true,
   });
 
   final _Mode mode;
+  final bool enabled;
   final VoidCallback onSend;
   final VoidCallback onStop;
   final VoidCallback onVoice;
@@ -149,24 +154,28 @@ class _ActionButton extends StatelessWidget {
           button: true,
           label: tip,
           child: GestureDetector(
-            onTap: tap,
-            child: AnimatedContainer(
+            onTap: enabled ? tap : null,
+            child: AnimatedOpacity(
               duration: Motion.fade,
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: gradient ? null : solid,
-                gradient: gradient ? Brushes.primary : null,
-              ),
-              alignment: Alignment.center,
-              child: AnimatedSwitcher(
+              opacity: enabled ? 1 : 0.45,
+              child: AnimatedContainer(
                 duration: Motion.fade,
-                child: HeroIcon(
-                  icon,
-                  key: ValueKey(mode),
-                  size: mode == _Mode.stop ? 18 : 22,
-                  color: gradient ? Palette.white : onSolid,
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: gradient ? null : solid,
+                  gradient: gradient ? Brushes.primary : null,
+                ),
+                alignment: Alignment.center,
+                child: AnimatedSwitcher(
+                  duration: Motion.fade,
+                  child: HeroIcon(
+                    icon,
+                    key: ValueKey(mode),
+                    size: mode == _Mode.stop ? 18 : 22,
+                    color: gradient ? Palette.white : onSolid,
+                  ),
                 ),
               ),
             ),

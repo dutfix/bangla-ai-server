@@ -248,6 +248,7 @@
       }
     }
   },
+  "voiceOff": "Voice is off for now. The admin will turn it on soon.",
   "micPermission": "Microphone permission is needed for calls.",
   "speechUnavailable": "Speech recognition is not available. Allow the microphone and make sure Google speech services (Android) are installed.",
   "modelAutoDesc": "Picks the best model for each message",

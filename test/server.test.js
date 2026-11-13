@@ -439,13 +439,59 @@ test('voice providers: saved with masked keys, key kept on edit, cloud voice spe
 });
 
 test('admin overview stats, prompt defaults and prompt try-out', async () => {
+  const { saveUsage } = require('../server.js');
   const auth = { Authorization: `Bearer ${token}` };
-  const st = await j('/admin/stats', { headers: auth });
+  // Two phones send a chat each; one sends two.
+  for (const dev of ['phone-aaaaaaaa', 'phone-bbbbbbbb', 'phone-aaaaaaaa']) {
+    await (await fetch(`${base}/v1/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Device': dev },
+      body: JSON.stringify({ messages: [{ role: 'user', content: 'হাই' }] }),
+    })).text();
+  }
+  // A voice that fails is counted as an error.
+  const fakeUrl = `http://127.0.0.1:${fake.address().port}/v1`;
+  await j('/admin/config', {
+    method: 'PUT',
+    headers: auth,
+    body: {
+      voiceEnabled: true,
+      voiceProvider: 'bad',
+      voiceProviders: [{ id: 'bad', type: 'openai', baseUrl: fakeUrl, model: 'tts-1', voice: 'alloy', apiKey: 'wrong' }],
+    },
+  });
+  const failed = await j('/v1/tts', { method: 'POST', body: { text: 'ভুল' } });
+  assert.equal(failed.status, 502);
+  assert.equal(failed.body.error.code, 'tts_failed');
+  await j('/admin/config', { method: 'PUT', headers: auth, body: { voiceEnabled: false, voiceProviders: [] } });
+  const st = await j('/admin/stats?days=7', { headers: auth });
   assert.equal(st.status, 200);
-  assert.ok(st.body.stats.chats >= 2);
-  assert.ok(st.body.stats.callTurns >= 3);
-  assert.ok(st.body.stats.ttsRequests >= 2);
+  const s = st.body.stats;
+  assert.ok(s.today.chats >= 5, JSON.stringify(s.today));
+  assert.ok(s.today.callTurns >= 3);
+  assert.equal(s.today.messages, s.today.chats + s.today.callTurns);
+  assert.ok(s.today.tts >= 2);
+  assert.equal(s.today.activeDevices, 2);
+  assert.equal(s.totalDevices, 2);
+  assert.ok(s.today.models['auto/fast'] >= 1);
+  assert.ok(s.today.models['gpt-x'] >= 1);
+  assert.ok(Object.keys(s.today.voices).some((k) => k.startsWith('openai:')));
+  assert.equal(s.series.length, 7);
+  assert.equal(s.series.at(-1).chats, s.today.chats);
+  assert.equal(typeof s.today.chatReplyMs, 'number');
+  assert.equal(s.timezone, 'Asia/Dhaka');
+  assert.ok(s.today.failures >= 1);
+  assert.ok(Object.keys(s.today.errorKinds).includes('voice:key'), JSON.stringify(s.today.errorKinds));
+  assert.ok(s.recentErrors.length >= 1);
+  // No device ids, IPs or message text in the stats.
+  const flat = JSON.stringify(st.body);
+  assert.ok(!flat.includes('phone-aaaaaaaa'));
+  assert.ok(!flat.includes('হাই'));
   assert.equal(st.body.ready, true);
+  // Counters survive a restart: they are saved to the store.
+  await saveUsage();
+  const row = JSON.parse(fs.readFileSync(`${process.env.CONFIG_FILE}.row3`, 'utf8'));
+  assert.ok(Object.values(row.days)[0].chats >= 5);
   assert.equal((await j('/admin/stats')).status, 401);
   const d = await j('/admin/defaults', { headers: auth });
   assert.match(d.body.stylePrompt, /laid-back/);

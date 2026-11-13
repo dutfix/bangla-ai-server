@@ -8,7 +8,7 @@ import '../theme/hero_icons.dart';
 import '../theme/tokens.dart';
 import '../widgets/components.dart';
 import '../widgets/voice_orb.dart';
-import 'voices_screen.dart';
+import '../services/voice_setup.dart';
 
 /// Full-screen hands-free voice mode. It starts the call when it opens and
 /// hangs up when it closes. Every turn is also written into the chat.
@@ -101,18 +101,6 @@ class _VoiceModeScreenState extends State<VoiceModeScreen> {
                       PageTitle(
                         title: l.voiceModeTitle,
                         maxLines: 1,
-                        subWidget: Text(
-                          voiceLabel(
-                            sv.settings.voice,
-                            sv.speaker.voices,
-                            l,
-                          ).split(' · ').first,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: t.bodyMedium?.copyWith(
-                            color: s.onSurfaceVariant,
-                          ),
-                        ),
                         leading: IconButton(
                           tooltip: l.closeVoiceMode,
                           onPressed: _hangUp,
@@ -361,11 +349,7 @@ class _VoiceModeScreenState extends State<VoiceModeScreen> {
             accent: Accent.red,
             title: error,
             onTap: needsVoice
-                ? () => Navigator.of(context).pushReplacement(
-                    MaterialPageRoute<void>(
-                      builder: (_) => VoicesScreen(services: widget.services),
-                    ),
-                  )
+                ? () => VoiceSetupFix.open(widget.services.speaker.setup)
                 : null,
           ),
         ),

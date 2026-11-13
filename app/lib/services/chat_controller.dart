@@ -172,7 +172,7 @@ class ChatController extends ChangeNotifier implements CallSink {
     notifyListeners();
     try {
       await for (final chunk in llm.streamChat([
-        ..._systemMessages(call: false),
+        ..._systemMessages(),
         ...history,
       ])) {
         if (gen != _gen) return;
@@ -197,10 +197,10 @@ class ChatController extends ChangeNotifier implements CallSink {
     if (reply.error == null) unawaited(_autoTitle(c));
   }
 
-  /// The reply-language rule (Bangla by default), merged with the call
-  /// style in calls and the user's optional system prompt.
-  List<Map<String, String>> _systemMessages({required bool call}) => [
-    {'role': 'system', 'content': settings.systemMessage(call: call)},
+  /// The reply-language rule (Bangla by default). The server adds the
+  /// admin's prompts, and the call style when the request is a call turn.
+  List<Map<String, String>> _systemMessages() => [
+    {'role': 'system', 'content': settings.systemMessage()},
   ];
 
   /// The messages to send: failed replies are left out, and so is a user
@@ -272,7 +272,7 @@ class ChatController extends ChangeNotifier implements CallSink {
 
   @override
   List<Map<String, String>> historyForModel({int limit = 20}) => [
-    ..._systemMessages(call: true),
+    ..._systemMessages(),
     ..._history(messages, limit: limit),
   ];
 

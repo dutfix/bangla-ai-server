@@ -27,7 +27,10 @@ class LlmClient {
   http.Client? _active;
 
   static final _url = Backend.uri('/v1/chat');
-  static const _headers = {'Content-Type': 'application/json'};
+  Map<String, String> get _headers => {
+    'Content-Type': 'application/json',
+    if (settings.deviceId.isNotEmpty) 'X-Device': settings.deviceId,
+  };
 
   /// Streams the answer chunk by chunk (Server-Sent Events). Falls back to a
   /// normal response if the server does not stream.
@@ -35,12 +38,20 @@ class LlmClient {
     List<Map<String, String>> messages, {
     String? model,
     void Function()? onWaking,
+    bool call = false,
   }) async* {
     _checkEnabled();
     final client = _newClient();
     _active = client;
     try {
-      final res = await _send(client, messages, model, true, onWaking);
+      final res = await _send(
+        client,
+        messages,
+        model,
+        true,
+        onWaking,
+        call: call,
+      );
       if (res.statusCode != 200) {
         final body = await res.stream.bytesToString();
         throw _error(res.statusCode, body);
@@ -96,14 +107,18 @@ class LlmClient {
     List<Map<String, String>> messages,
     String? model,
     bool stream,
-    void Function()? onWaking,
-  ) async {
+    void Function()? onWaking, {
+    bool call = false,
+  }) async {
+    // A call turn: the server picks a fast model, keeps replies short and
+    // adds the call style.
     http.Request build() => http.Request('POST', _url)
       ..headers.addAll(_headers)
       ..body = jsonEncode({
         'model': model ?? settings.model,
         'messages': messages,
         'stream': stream,
+        if (call) 'call': true,
       });
     if (!settings.serverAwake) {
       final ok = await wakeServer(onWaiting: onWaking);

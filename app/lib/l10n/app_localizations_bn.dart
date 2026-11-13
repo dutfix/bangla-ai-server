@@ -513,6 +513,9 @@ class AppLocalizationsBn extends AppLocalizations {
   }
 
   @override
+  String get voiceOff => 'ভয়েস এখন বন্ধ আছে। অ্যাডমিন শিগগিরই চালু করবেন।';
+
+  @override
   String get micPermission => 'কলের জন্য মাইক্রোফোনের অনুমতি দরকার।';
 
   @override

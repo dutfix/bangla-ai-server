@@ -1,7 +1,7 @@
 name: omni_voice_call
 description: "Bangla AI: chat and hands-free voice calls in Bangla. Answers come through the Bangla AI server; voices are the phone's Google Bangla voices."
 publish_to: 'none'
-version: 1.0.2+3
+version: 1.1.0+4
 
 environment:
   sdk: ^3.14.0
@@ -26,6 +26,7 @@ dependencies:
   url_launcher: ^6.3.3
   android_intent_plus: ^6.1.0
   path_parsing: ^1.1.0
+  audioplayers: ^6.8.1
 
 dev_dependencies:
   flutter_test:

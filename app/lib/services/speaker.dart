@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:io' show Platform;
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 
@@ -26,8 +27,15 @@ enum VoiceSetup {
 /// such as Samsung's is the phone's default, and speaks Bangla: the chosen
 /// voice, else bn-BD, else bn-IN. Sentences are queued so the AI starts
 /// talking after its first sentence.
+///
+/// When the admin set up a cloud voice, [prepare] gets a function that
+/// fetches each sentence's audio from the server. Every sentence's audio is
+/// fetched as soon as it is queued, so the next one is ready while the
+/// current one plays. A sentence whose audio fails is spoken by the phone.
 class Speaker extends ChangeNotifier {
-  Speaker({FlutterTts? tts}) : _tts = tts ?? FlutterTts();
+  Speaker({FlutterTts? tts, AudioPlayer Function()? player})
+    : _tts = tts ?? FlutterTts(),
+      _newPlayer = player ?? AudioPlayer.new;
 
   static const googleEngine = 'com.google.android.tts';
 
@@ -41,7 +49,12 @@ class Speaker extends ChangeNotifier {
   /// The Bangla voices the engine reports, best first.
   List<VoiceOption> voices = const [];
 
-  final _queue = Queue<String>();
+  final AudioPlayer Function() _newPlayer;
+  AudioPlayer? _player;
+  Future<Uint8List> Function(String text)? _cloud;
+  Completer<void>? _clip;
+
+  final _queue = Queue<_Line>();
   bool _playing = false;
   int _epoch = 0;
   Completer<void>? _idle;
@@ -108,8 +121,35 @@ class Speaker extends ChangeNotifier {
   /// voice that works offline, else the first Bangla voice.
   VoiceOption? get defaultVoice => voices.isEmpty ? null : voices.first;
 
-  /// Sets the voice, speed (1.0 = normal) and pitch (1.0 = normal).
-  Future<void> prepare(VoiceOption? voice, double speed, double pitch) async {
+  /// The offline version of a network voice (bn-bd-x-ban-network ->
+  /// bn-bd-x-ban-local) when the phone has it: it starts speaking without a
+  /// trip to Google's servers for every sentence.
+  VoiceOption? offlineTwin(VoiceOption? voice) {
+    final v = voice ?? defaultVoice;
+    // The admin's saved voice carries only a name and a locale.
+    if (v == null || !(v.network || v.name.contains('-network'))) return voice;
+    final twinName = v.name.replaceAll('-network', '-local');
+    for (final o in voices) {
+      if (!o.network && o.name == twinName) return o;
+    }
+    for (final o in voices) {
+      if (!o.network && o.locale.toLowerCase() == v.locale.toLowerCase()) {
+        return o;
+      }
+    }
+    return voice;
+  }
+
+  /// Sets the voice, speed (1.0 = normal) and pitch (1.0 = normal), and
+  /// whether sentences come from the admin's cloud voice ([cloud] fetches a
+  /// sentence's audio) or the phone's engine (null).
+  Future<void> prepare(
+    VoiceOption? voice,
+    double speed,
+    double pitch, {
+    Future<Uint8List> Function(String text)? cloud,
+  }) async {
+    _cloud = cloud;
     await init();
     final v = (voice != null && voices.contains(voice)) ? voice : defaultVoice;
     var set = false;
@@ -133,7 +173,21 @@ class Speaker extends ChangeNotifier {
 
   void enqueue(String text) {
     if (text.trim().isEmpty) return;
-    _queue.add(text);
+    final cloud = _cloud;
+    _queue.add(
+      _Line(
+        text,
+        cloud == null
+            ? null
+            : cloud(text).then<Uint8List?>(
+                (b) => b.isEmpty ? null : b,
+                onError: (Object e) {
+                  onCloudError?.call(e);
+                  return null;
+                },
+              ),
+      ),
+    );
     _idle ??= Completer<void>();
     if (!_playing) unawaited(_pump(_epoch));
   }
@@ -142,9 +196,15 @@ class Speaker extends ChangeNotifier {
     _playing = true;
     try {
       while (_queue.isNotEmpty && epoch == _epoch) {
-        final text = _queue.removeFirst();
+        final line = _queue.removeFirst();
         try {
-          await _tts.speak(text);
+          final audio = line.audio == null ? null : await line.audio;
+          if (epoch != _epoch) break;
+          if (audio != null) {
+            await _play(audio);
+          } else {
+            await _tts.speak(line.text);
+          }
         } catch (e) {
           if (epoch == _epoch) onError?.call(e);
         }
@@ -155,6 +215,25 @@ class Speaker extends ChangeNotifier {
         _idle?.complete();
         _idle = null;
       }
+    }
+  }
+
+  /// Called when the cloud voice fails for a sentence (the phone speaks it).
+  void Function(Object error)? onCloudError;
+
+  Future<void> _play(Uint8List audio) async {
+    final p = _player ??= _newPlayer();
+    final done = Completer<void>();
+    _clip = done;
+    final sub = p.onPlayerComplete.listen((_) {
+      if (!done.isCompleted) done.complete();
+    });
+    try {
+      await p.play(BytesSource(audio, mimeType: 'audio/mpeg'));
+      await done.future.timeout(const Duration(seconds: 90), onTimeout: () {});
+    } finally {
+      await sub.cancel();
+      if (identical(_clip, done)) _clip = null;
     }
   }
 
@@ -171,6 +250,12 @@ class Speaker extends ChangeNotifier {
     _playing = false;
     _idle?.complete();
     _idle = null;
+    final clip = _clip;
+    _clip = null;
+    if (clip != null && !clip.isCompleted) clip.complete();
+    try {
+      await _player?.stop();
+    } catch (_) {}
     try {
       await _tts.stop();
     } catch (_) {}
@@ -188,4 +273,12 @@ class Speaker extends ChangeNotifier {
     enqueue(sample);
     await waitUntilDone();
   }
+}
+
+/// One queued sentence, with its cloud audio on the way (null: the phone
+/// speaks it; a null result: the cloud failed and the phone speaks it).
+class _Line {
+  _Line(this.text, this.audio);
+  final String text;
+  final Future<Uint8List?>? audio;
 }

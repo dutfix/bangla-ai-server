@@ -6,7 +6,6 @@ import 'package:omni_voice_call/main.dart';
 import 'package:omni_voice_call/models/chat.dart';
 import 'package:omni_voice_call/screens/settings_screen.dart';
 import 'package:omni_voice_call/screens/voice_mode_screen.dart';
-import 'package:omni_voice_call/screens/voices_screen.dart';
 import 'package:omni_voice_call/widgets/composer.dart';
 import 'package:omni_voice_call/widgets/message_tile.dart';
 
@@ -179,15 +178,6 @@ void main() {
           6000,
         );
         await settle(tester);
-        nav.pop();
-        await settle(tester);
-
-        // Voices.
-        nav.push(
-          MaterialPageRoute<void>(builder: (_) => VoicesScreen(services: sv)),
-        );
-        await settle(tester);
-        await shot(tester, shotDir, '9_voices_$tag');
         nav.pop();
         await settle(tester);
 

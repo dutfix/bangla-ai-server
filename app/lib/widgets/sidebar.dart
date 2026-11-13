@@ -17,7 +17,6 @@ class ChatSidebar extends StatefulWidget {
     required this.onNewChat,
     required this.onOpen,
     required this.onDeleted,
-    required this.onVoices,
     required this.onSettings,
   });
 
@@ -26,7 +25,6 @@ class ChatSidebar extends StatefulWidget {
   final VoidCallback onNewChat;
   final ValueChanged<Conversation> onOpen;
   final ValueChanged<Conversation> onDeleted;
-  final VoidCallback onVoices;
   final VoidCallback onSettings;
 
   @override
@@ -131,12 +129,6 @@ class _ChatSidebarState extends State<ChatSidebar> {
             // the list instead of taking fixed space.
             final compact = box.maxHeight < 520;
             final footer = [
-              _footerRow(
-                icon: HeroIcons.speakerWave,
-                accent: Accent.green,
-                label: context.l10n.voices,
-                onTap: widget.onVoices,
-              ),
               _footerRow(
                 icon: HeroIcons.cog6Tooth,
                 accent: Accent.flagRed,

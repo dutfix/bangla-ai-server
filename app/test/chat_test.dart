@@ -25,6 +25,7 @@ class FakeLlm extends LlmClient {
     List<Map<String, String>> messages, {
     String? model,
     void Function()? onWaking,
+    bool call = false,
   }) async* {
     asked.add(messages);
     for (final w in words) {
@@ -89,7 +90,7 @@ void main() {
     expect(again.conversations.single.title, 'Friendly Greeting');
   });
 
-  test('the app sends its language rule; calls add the spoken style', () async {
+  test('the app sends its language rule; the server adds the styles', () async {
     final store = ChatStore(directory: () async => dir);
     await store.load();
     final llm = FakeLlm(settings);
@@ -103,7 +104,9 @@ void main() {
     await settings.setLanguage('bn');
     final call = chat.historyForModel();
     expect(call.first['role'], 'system');
-    expect(call.first['content'], contains('voice call'));
+    // The call style and the conversation style are the admin's, added by
+    // the server; the app only says which language to answer in.
+    expect(call.first['content'], isNot(contains('voice call')));
     expect(call.first['content'], contains('Bangla'));
   });
 
@@ -215,7 +218,7 @@ void main() {
   );
 
   test(
-    'admin voice, speed and pitch apply until the user changes them',
+    'voice, speed and pitch are the admin\'s; voice is off unless turned on',
     () async {
       settings.remote = RemoteConfig.fromJson({
         'voiceName': 'bn-bd-x-ban-local',
@@ -229,12 +232,9 @@ void main() {
       expect(settings.speed, 1.3);
       expect(settings.pitch, 0.8);
       expect(settings.isConfigured, isFalse);
-      await settings.setSpeed(0.9);
-      expect(settings.speed, 0.9);
-      expect(settings.hasVoiceOverride, isTrue);
-      await settings.resetVoice();
-      expect(settings.speed, 1.3);
-      expect(settings.hasVoiceOverride, isFalse);
+      // Voice is the admin's: off unless the server turns it on.
+      expect(settings.voiceEnabled, isFalse);
+      expect(settings.cloudVoice, isFalse);
     },
   );
 

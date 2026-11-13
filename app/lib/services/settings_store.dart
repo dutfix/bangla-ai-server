@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'dart:async';
 import 'dart:convert';
 
@@ -22,6 +23,11 @@ class RemoteConfig {
     this.voiceLocale = 'bn-BD',
     this.speed = 1.0,
     this.pitch = 1.0,
+    this.voiceEnabled = false,
+    this.voiceMode = 'off',
+    this.callPauseMs = 900,
+    this.callHistory = 10,
+    this.callOfflineVoice = true,
     this.ready = true,
     this.updatedAt = '',
   });
@@ -37,6 +43,22 @@ class RemoteConfig {
   final String voiceLocale;
   final double speed;
   final double pitch;
+
+  /// Voice calls and read-aloud are on. Off until the admin turns them on.
+  final bool voiceEnabled;
+
+  /// 'off', 'device' (the phone's own voice) or 'server' (the admin's cloud
+  /// voice, played from the server's /v1/tts).
+  final String voiceMode;
+
+  /// Silence that ends the user's turn in a call, in milliseconds.
+  final int callPauseMs;
+
+  /// Messages of the conversation sent with each call turn.
+  final int callHistory;
+
+  /// In calls, use the offline twin of a network phone voice (starts faster).
+  final bool callOfflineVoice;
 
   /// The server has an OmniRoute address and key.
   final bool ready;
@@ -60,6 +82,13 @@ class RemoteConfig {
       voiceLocale: '${j['voiceLocale'] ?? 'bn-BD'}',
       speed: dbl(j['speed'], 1.0).clamp(0.25, 2.5),
       pitch: dbl(j['pitch'], 1.0).clamp(0.5, 2.0),
+      voiceEnabled: j['voiceEnabled'] == true,
+      voiceMode: j['voiceEnabled'] == true
+          ? (j['voiceMode'] == 'server' ? 'server' : 'device')
+          : 'off',
+      callPauseMs: (dbl(j['callPauseMs'], 900).round()).clamp(400, 3000),
+      callHistory: (dbl(j['callHistory'], 10).round()).clamp(2, 40),
+      callOfflineVoice: j['callOfflineVoice'] != false,
       ready: j['ready'] != false,
       updatedAt: '${j['updatedAt'] ?? ''}',
     );
@@ -74,6 +103,11 @@ class RemoteConfig {
     'voiceLocale': voiceLocale,
     'speed': speed,
     'pitch': pitch,
+    'voiceEnabled': voiceEnabled,
+    'voiceMode': voiceMode,
+    'callPauseMs': callPauseMs,
+    'callHistory': callHistory,
+    'callOfflineVoice': callOfflineVoice,
     'ready': ready,
     'updatedAt': updatedAt,
   };
@@ -88,6 +122,11 @@ class RemoteConfig {
         voiceLocale: voiceLocale,
         speed: speed,
         pitch: pitch,
+        voiceEnabled: voiceEnabled,
+        voiceMode: voiceMode,
+        callPauseMs: callPauseMs,
+        callHistory: callHistory,
+        callOfflineVoice: callOfflineVoice,
         ready: ready,
         updatedAt: updatedAt,
       );
@@ -96,9 +135,9 @@ class RemoteConfig {
 /// Where the server config stands, for the chat screen's banner.
 enum ServerState { unknown, waking, online, offline }
 
-/// The user's own choices (language, theme, voice overrides) plus the
-/// admin's config from the server, cached so the app starts offline.
-/// There is nothing to set up: no key, no server address, no model.
+/// The user's own choices (language, theme, model) plus the admin's config
+/// from the server, cached so the app starts offline. Everything about voice
+/// (on or off, which voice, speed, pitch, provider) comes from the admin.
 class SettingsStore extends ChangeNotifier {
   SettingsStore({http.Client Function()? clientFactory})
     : _newClient = clientFactory ?? http.Client.new;
@@ -106,15 +145,10 @@ class SettingsStore extends ChangeNotifier {
   final http.Client Function() _newClient;
   late SharedPreferences _prefs;
 
-  /// Always added in voice calls, so replies are short and speakable.
-  static const callStyle =
-      'You are on a live voice call. Answer in one to three short, natural '
-      'spoken sentences. Never use markdown, lists, emojis or code. If you '
-      'need more detail, ask a short question.';
-
   /// Bumped when a new version changes defaults that should reach people who
   /// already use the app. 1 = Bangla AI: Bangla language, server config.
-  static const _defaultsVersion = 1;
+  /// 2 = voice settings moved to the admin: drop the user's voice overrides.
+  static const _defaultsVersion = 2;
 
   /// The admin's config: the cached copy until the server answers.
   RemoteConfig remote = const RemoteConfig();
@@ -137,27 +171,21 @@ class SettingsStore extends ChangeNotifier {
   /// and the speech recognizer locale.
   String language = AppLanguage.defaultCode;
 
-  /// The user's own voice, speed and pitch. Null = the admin's default.
-  VoiceOption? _voice;
-  double? _speed;
-  double? _pitch;
-
   /// Whether the one-time "install Bangla voice" prompt was shown.
   bool voiceSetupPrompted = false;
 
-  /// The voice to use: the user's pick, else the admin's, else null (the
-  /// best Bangla voice on the phone).
-  VoiceOption? get voice =>
-      _voice ??
-      (remote.voiceName.isEmpty
-          ? null
-          : VoiceOption(name: remote.voiceName, locale: remote.voiceLocale));
-  double get speed => _speed ?? remote.speed;
-  double get pitch => _pitch ?? remote.pitch;
+  /// The admin's phone voice, or null for the best Bangla voice on the phone.
+  VoiceOption? get voice => remote.voiceName.isEmpty
+      ? null
+      : VoiceOption(name: remote.voiceName, locale: remote.voiceLocale);
+  double get speed => remote.speed;
+  double get pitch => remote.pitch;
 
-  /// The user changed the voice, speed or pitch from the admin's defaults.
-  bool get hasVoiceOverride =>
-      _voice != null || _speed != null || _pitch != null;
+  /// Voice calls and read-aloud are available (the admin turned voice on).
+  bool get voiceEnabled => remote.voiceEnabled;
+
+  /// The admin's cloud voice speaks (audio from the server), not the phone.
+  bool get cloudVoice => remote.voiceMode == 'server';
 
   /// The user's model pick from the admin's list. Null = the admin's default.
   String? _model;
@@ -187,15 +215,27 @@ class SettingsStore extends ChangeNotifier {
   /// Phone speech recognizer locale, e.g. bn_BD.
   String get speechLocale => AppLanguage.speechLocale(language);
 
-  /// The app's system lines for a chat or a call: the reply-language rule
-  /// and the call style. The server puts the admin's prompt before these.
-  String systemMessage({bool call = false}) => [
-    AppLanguage.replyInstruction(language),
-    if (call) callStyle,
-  ].join('\n\n');
+  /// The app's system line: the reply-language rule. The server puts the
+  /// admin's prompt, the conversation style and, in calls, the call style
+  /// before it.
+  String systemMessage() => AppLanguage.replyInstruction(language);
+
+  /// A random id for this install, so the admin's overview can count
+  /// phones. Not tied to the person or the phone; the server stores only a
+  /// salted hash of it.
+  String deviceId = '';
 
   Future<void> load() async {
     _prefs = await SharedPreferences.getInstance();
+    deviceId = _prefs.getString('deviceId') ?? '';
+    if (deviceId.isEmpty) {
+      final r = Random.secure();
+      deviceId = List.generate(
+        24,
+        (_) => '0123456789abcdef'[r.nextInt(16)],
+      ).join();
+      await _prefs.setString('deviceId', deviceId);
+    }
     themeMode = ThemeMode.values.firstWhere(
       (m) => m.name == _prefs.getString('themeMode'),
       orElse: () => ThemeMode.system,
@@ -207,13 +247,6 @@ class SettingsStore extends ChangeNotifier {
     L10n.code = language;
     voiceSetupPrompted = _prefs.getBool('voiceSetupPrompted') ?? false;
     _model = _prefs.getString('userModel');
-    _speed = _prefs.getDouble('userSpeed');
-    _pitch = _prefs.getDouble('userPitch');
-    final vName = _prefs.getString('voiceName');
-    final vLocale = _prefs.getString('voiceLocale');
-    _voice = (vName != null && vLocale != null)
-        ? VoiceOption(name: vName, locale: vLocale)
-        : null;
     final cached = _prefs.getString('remoteConfig');
     if (cached != null) {
       try {
@@ -224,9 +257,9 @@ class SettingsStore extends ChangeNotifier {
     }
     // Upgrading from Omni: switch once to Bangla and drop the old
     // connection settings, which now live on the server.
-    if ((_prefs.getInt('defaultsVersion') ?? 0) < _defaultsVersion) {
+    final had = _prefs.getInt('defaultsVersion') ?? 0;
+    if (had < 1) {
       final upgrading = _prefs.getKeys().isNotEmpty;
-      await _prefs.setInt('defaultsVersion', _defaultsVersion);
       for (final old in [
         'voice', 'foundVoices', 'baseUrl', 'model', 'models', //
         'systemPrompt', 'speed',
@@ -238,6 +271,20 @@ class SettingsStore extends ChangeNotifier {
         L10n.code = language;
         await _prefs.setString('language', language);
       }
+    }
+    if (had < 2) {
+      // The voice, speed and pitch are the admin's now.
+      for (final old in [
+        'voiceName',
+        'voiceLocale',
+        'userSpeed',
+        'userPitch',
+      ]) {
+        await _prefs.remove(old);
+      }
+    }
+    if (had < _defaultsVersion) {
+      await _prefs.setInt('defaultsVersion', _defaultsVersion);
     }
   }
 
@@ -307,36 +354,6 @@ class SettingsStore extends ChangeNotifier {
   Future<void> setThemeMode(ThemeMode m) async {
     themeMode = m;
     await _prefs.setString('themeMode', m.name);
-    notifyListeners();
-  }
-
-  Future<void> setVoice(VoiceOption v) async {
-    _voice = v;
-    await _prefs.setString('voiceName', v.name);
-    await _prefs.setString('voiceLocale', v.locale);
-    notifyListeners();
-  }
-
-  Future<void> setSpeed(double value) async {
-    _speed = value;
-    await _prefs.setDouble('userSpeed', value);
-    notifyListeners();
-  }
-
-  Future<void> setPitch(double value) async {
-    _pitch = value;
-    await _prefs.setDouble('userPitch', value);
-    notifyListeners();
-  }
-
-  /// Goes back to the admin's voice, speed and pitch.
-  Future<void> resetVoice() async {
-    _voice = null;
-    _speed = null;
-    _pitch = null;
-    for (final k in ['voiceName', 'voiceLocale', 'userSpeed', 'userPitch']) {
-      await _prefs.remove(k);
-    }
     notifyListeners();
   }
 

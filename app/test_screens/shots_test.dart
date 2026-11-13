@@ -27,7 +27,6 @@ import 'package:omni_voice_call/services/settings_store.dart';
 import 'package:omni_voice_call/services/speaker.dart';
 import 'package:omni_voice_call/screens/settings_screen.dart';
 import 'package:omni_voice_call/screens/voice_mode_screen.dart';
-import 'package:omni_voice_call/screens/voices_screen.dart';
 import 'package:omni_voice_call/widgets/composer.dart';
 import 'package:omni_voice_call/widgets/model_sheet.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -505,13 +504,6 @@ void main() {
           '07b_settings_end_$tag',
           top: find.byType(SettingsScreen),
         );
-        nav.pop();
-        await settle(tester);
-        nav.push(
-          MaterialPageRoute<void>(builder: (_) => VoicesScreen(services: sv)),
-        );
-        await settle(tester);
-        await shot(tester, '11_voices_$tag', top: find.byType(VoicesScreen));
         nav.pop();
         await settle(tester);
 

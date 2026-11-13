@@ -4,7 +4,9 @@ import 'package:flutter/foundation.dart';
 
 import '../l10n/l10n.dart';
 import '../models/chat.dart';
+import 'backend.dart';
 import 'chat_controller.dart';
+import 'cloud_voice.dart';
 import 'listener.dart';
 import 'llm_client.dart';
 import 'settings_store.dart';
@@ -21,12 +23,20 @@ class CallController extends ChangeNotifier {
     required this.listener,
     required this.sink,
     LlmClient? llm,
-  }) : llm = llm ?? LlmClient(settings);
+    CloudVoice? cloud,
+    Future<bool> Function()? wake,
+  }) : llm = llm ?? LlmClient(settings),
+       cloud = cloud ?? CloudVoice(),
+       _wake = wake ?? (() => wakeServer(total: const Duration(seconds: 60)));
 
   final SettingsStore settings;
   final Speaker speaker;
   final SpeechListener listener;
   final LlmClient llm;
+
+  /// The admin's cloud voice, when voice mode is 'server'.
+  final CloudVoice cloud;
+  final Future<bool> Function() _wake;
 
   /// The open chat: call turns are written there as they happen.
   final CallSink sink;
@@ -59,6 +69,10 @@ class CallController extends ChangeNotifier {
       _setError(L10n.current.needApiKey);
       return;
     }
+    if (!settings.voiceEnabled) {
+      _setError(L10n.current.voiceOff);
+      return;
+    }
     _active = true;
     error = null;
     lastHeard = '';
@@ -75,9 +89,24 @@ class CallController extends ChangeNotifier {
       elapsed += const Duration(seconds: 1);
       notifyListeners();
     });
+    // Wake a sleeping server while the user says their first words.
+    unawaited(_wake().catchError((_) => false));
     try {
-      await speaker.prepare(settings.voice, settings.speed, settings.pitch);
-      if (!await listener.init()) {
+      // The voice and the microphone get ready side by side.
+      final micReady = listener.init();
+      await speaker.init();
+      final voice = settings.remote.callOfflineVoice
+          ? speaker.offlineTwin(settings.voice)
+          : settings.voice;
+      await speaker.prepare(
+        voice,
+        settings.speed,
+        settings.pitch,
+        cloud: settings.cloudVoice
+            ? (cloud..deviceId = settings.deviceId).speak
+            : null,
+      );
+      if (!await micReady) {
         throw Exception(L10n.current.micPermission);
       }
     } catch (e) {
@@ -97,6 +126,7 @@ class CallController extends ChangeNotifier {
       try {
         heard = await listener.listenOnce(
           localeId: settings.speechLocale,
+          pauseFor: Duration(milliseconds: settings.remote.callPauseMs),
           onWords: (words) {
             partial = words;
             notifyListeners();
@@ -122,7 +152,7 @@ class CallController extends ChangeNotifier {
     error = null;
     _set(CallState.thinking);
 
-    final messages = sink.historyForModel(limit: 20);
+    final messages = sink.historyForModel(limit: settings.remote.callHistory);
     final reply = sink.callBeginReply();
     lastReply = reply;
     _reply = reply;
@@ -135,7 +165,7 @@ class CallController extends ChangeNotifier {
     }
 
     try {
-      await for (final chunk in llm.streamChat(messages)) {
+      await for (final chunk in llm.streamChat(messages, call: true)) {
         if (!_active || turn != _turnId) return;
         reply.text += chunk;
         sink.callReplyChanged(reply);
@@ -189,6 +219,7 @@ class CallController extends ChangeNotifier {
     levels.value = 0;
     await listener.stop();
     await speaker.stop();
+    cloud.close();
     _set(CallState.idle);
   }
 

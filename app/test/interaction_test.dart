@@ -4,7 +4,6 @@ import 'package:omni_voice_call/l10n/l10n.dart';
 import 'package:omni_voice_call/main.dart';
 import 'package:omni_voice_call/screens/settings_screen.dart';
 import 'package:omni_voice_call/screens/voice_mode_screen.dart';
-import 'package:omni_voice_call/screens/voices_screen.dart';
 import 'package:omni_voice_call/widgets/composer.dart';
 import 'package:omni_voice_call/widgets/message_tile.dart';
 import 'package:omni_voice_call/widgets/sidebar.dart';
@@ -118,13 +117,8 @@ void main() {
         );
         await settle(tester);
 
-        // Voices, then back.
-        await tester.tap(find.text(bn.voices));
-        await settle(tester);
-        expect(find.byType(VoicesScreen), findsOneWidget);
-        await tester.tap(find.byTooltip(bn.back).last);
-        await settle(tester);
-        expect(find.byType(VoicesScreen), findsNothing);
+        // Voice settings live in the admin app now: no Voices link.
+        expect(find.text(bn.voices), findsNothing);
 
         // Settings: theme, model sheet, back.
         await tester.tap(find.byTooltip(bn.chats).first);

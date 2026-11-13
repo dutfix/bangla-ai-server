@@ -17,7 +17,6 @@ import '../widgets/model_sheet.dart';
 import '../widgets/sidebar.dart';
 import 'settings_screen.dart';
 import 'voice_mode_screen.dart';
-import 'voices_screen.dart';
 
 /// The main screen: chat history on the side (a drawer on phones, fixed at
 /// 600dp and wider), the conversation, and the composer.
@@ -140,7 +139,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       );
       return;
     }
-    if (!await _voiceSetupCheck() || !mounted) return;
+    if (!sv.settings.voiceEnabled) {
+      showSnack(context, context.l10n.voiceOff);
+      return;
+    }
+    if (!sv.settings.cloudVoice && (!await _voiceSetupCheck() || !mounted)) {
+      return;
+    }
     await Navigator.of(context).push(
       PageRouteBuilder<void>(
         opaque: true,
@@ -245,7 +250,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       onNewChat: _newChat,
       onOpen: _open,
       onDeleted: sv.chat.forget,
-      onVoices: () => _push(VoicesScreen(services: sv)),
       onSettings: () => _push(SettingsScreen(services: sv)),
     ),
   );
@@ -333,7 +337,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         Expanded(
           child: empty
               ? _Welcome(
-                  onVoiceCall: _voiceCall,
+                  onVoiceCall: sv.settings.voiceEnabled ? _voiceCall : null,
                   onSuggestion: (text) {
                     _input.text = text;
                     _input.selection = TextSelection.collapsed(
@@ -404,7 +408,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                             generating: chat.generating,
                             onSend: _send,
                             onStop: chat.stop,
-                            onVoiceCall: _voiceCall,
+                            onVoiceCall: sv.settings.voiceEnabled
+                                ? _voiceCall
+                                : null,
                             maxLines: room < 300 ? 2 : (cramped ? 3 : 6),
                           ),
                         ),
@@ -447,7 +453,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           busy: busy,
           onRegenerate: () => chat.regenerate(m),
           onEdit: (text) => chat.editAndResend(m, text),
-          onSpeak: () => _speak(m),
+          onSpeak: sv.settings.voiceEnabled ? () => _speak(m) : null,
         );
         return Center(
           child: ConstrainedBox(
@@ -592,9 +598,10 @@ class _TopBar extends StatelessWidget {
 }
 
 class _Welcome extends StatelessWidget {
-  const _Welcome({required this.onVoiceCall, required this.onSuggestion});
+  const _Welcome({this.onVoiceCall, required this.onSuggestion});
 
-  final VoidCallback onVoiceCall;
+  /// Null when the admin has voice off: no call card.
+  final VoidCallback? onVoiceCall;
   final ValueChanged<String> onSuggestion;
 
   @override
@@ -652,13 +659,15 @@ class _Welcome extends StatelessWidget {
                       style: t.bodyMedium?.copyWith(color: s.onSurfaceVariant),
                     ),
                     const SizedBox(height: Space.gutter),
-                    HeroCard(
-                      title: l.startVoiceCall,
-                      sub: l.startVoiceCallSub,
-                      icon: HeroCustom.waveform,
-                      onTap: onVoiceCall,
-                    ),
-                    const SizedBox(height: Space.sm),
+                    if (onVoiceCall != null) ...[
+                      HeroCard(
+                        title: l.startVoiceCall,
+                        sub: l.startVoiceCallSub,
+                        icon: HeroCustom.waveform,
+                        onTap: onVoiceCall!,
+                      ),
+                      const SizedBox(height: Space.sm),
+                    ],
                     Padding(
                       padding: const EdgeInsets.symmetric(
                         horizontal: Space.gutter,

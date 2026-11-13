@@ -311,9 +311,17 @@ class PgStore {
     return r.rows[0] ? r.rows[0].data : {};
   }
   async saveSecrets(data) {
+    await this.saveRow(2, data);
+  }
+  // Row 3 holds the usage counters for the admin's overview.
+  async loadRow(id) {
+    const r = await this.pool.query(`SELECT data FROM ${CONFIG_TABLE} WHERE id = $1`, [id]);
+    return r.rows[0] ? r.rows[0].data : null;
+  }
+  async saveRow(id, data) {
     await this.pool.query(
-      `INSERT INTO ${CONFIG_TABLE} (id, data, updated_at) VALUES (2, $1, now()) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = now()`,
-      [data],
+      `INSERT INTO ${CONFIG_TABLE} (id, data, updated_at) VALUES ($1, $2, now()) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = now()`,
+      [id, data],
     );
   }
 }
@@ -345,6 +353,17 @@ class FileStore {
   async saveSecrets(data) {
     fs.mkdirSync(path.dirname(this.file), { recursive: true });
     fs.writeFileSync(`${this.file}.secrets`, JSON.stringify(data));
+  }
+  async loadRow(id) {
+    try {
+      return JSON.parse(fs.readFileSync(`${this.file}.row${id}`, 'utf8'));
+    } catch {
+      return null;
+    }
+  }
+  async saveRow(id, data) {
+    fs.mkdirSync(path.dirname(this.file), { recursive: true });
+    fs.writeFileSync(`${this.file}.row${id}`, JSON.stringify(data));
   }
 }
 
@@ -717,27 +736,90 @@ async function callOmniRoute(cfg, body, signal) {
 
 // ---------------------------------------------------------------- usage
 //
-// Counters since the server started (a free Render server restarts after it
-// sleeps), for the admin's overview. No message text is kept.
+// Counters for the admin's overview, kept per day (in STATS_TZ, Dhaka by
+// default) for the last 120 days and saved in the store every minute. No
+// message text, no IP address. A phone is counted by a salted hash of the
+// random install id the app sends (X-Device), so it cannot be traced back.
 
-const stats = {
-  since: new Date().toISOString(),
-  chats: 0,
-  callTurns: 0,
-  failures: 0,
-  ttsRequests: 0,
-  ttsChars: 0,
-  ttsDay: '',
-  ttsCharsToday: 0,
-  chatFirstMs: [],
-  callFirstMs: [],
-  ttsMs: [],
-  recentErrors: [],
-};
+const USAGE_ROW = 3;
+const USAGE_DAYS = 120;
+const DEVICE_CAP = 20000;
+const STATS_TZ = env.STATS_TZ || 'Asia/Dhaka';
+const dayFmt = new Intl.DateTimeFormat('en-CA', { timeZone: STATS_TZ, year: 'numeric', month: '2-digit', day: '2-digit' });
 
-function note(list, ms) {
+function today(d = new Date()) {
+  return dayFmt.format(d);
+}
+
+let usage = { days: {}, devices: [], errors: [], salt: crypto.randomBytes(16).toString('hex') };
+let usageDirty = false;
+let deviceSet = new Set();
+const recent = { chat: [], call: [], tts: [] }; // the last 50 times, for medians
+const startedAt = new Date().toISOString();
+
+function emptyDay() {
+  return {
+    chats: 0, // text replies asked for
+    callTurns: 0, // voice call turns
+    userMessages: 0, // = chats + callTurns, kept for clarity
+    failures: 0,
+    tts: 0,
+    ttsChars: 0,
+    chatMsSum: 0,
+    chatMsN: 0,
+    callMsSum: 0,
+    callMsN: 0,
+    ttsMsSum: 0,
+    ttsMsN: 0,
+    models: {},
+    voices: {},
+    errorKinds: {},
+    devices: [],
+    newDevices: 0,
+  };
+}
+
+function day(d = today()) {
+  if (!usage.days[d]) {
+    usage.days[d] = emptyDay();
+    const keep = Object.keys(usage.days).sort().slice(-USAGE_DAYS);
+    for (const k of Object.keys(usage.days)) if (!keep.includes(k)) delete usage.days[k];
+  }
+  usageDirty = true;
+  return usage.days[d];
+}
+
+function bump(map, key, n = 1) {
+  const k = String(key || 'unknown').slice(0, 80);
+  if (!(k in map) && Object.keys(map).length >= 50) return;
+  map[k] = (map[k] || 0) + n;
+}
+
+function deviceOf(req) {
+  const raw = String(req.headers['x-device'] || '').trim();
+  if (!/^[A-Za-z0-9-]{8,64}$/.test(raw)) return null;
+  return crypto.createHash('sha256').update(`${usage.salt}:device:${raw}`).digest('hex').slice(0, 16);
+}
+
+function noteDevice(req) {
+  const id = deviceOf(req);
+  if (!id) return;
+  const d = day();
+  if (!d.devices.includes(id) && d.devices.length < DEVICE_CAP) d.devices.push(id);
+  if (!deviceSet.has(id) && deviceSet.size < DEVICE_CAP) {
+    deviceSet.add(id);
+    usage.devices.push(id);
+    d.newDevices += 1;
+  }
+}
+
+function noteTime(kind, ms) {
+  const list = recent[kind];
   list.push(ms);
   if (list.length > 50) list.shift();
+  const d = day();
+  d[`${kind}MsSum`] += ms;
+  d[`${kind}MsN`] += 1;
 }
 
 function median(list) {
@@ -746,31 +828,142 @@ function median(list) {
   return a[Math.floor(a.length / 2)];
 }
 
-function noteError(where, message) {
-  stats.failures += 1;
-  stats.recentErrors.unshift({ at: new Date().toISOString(), where, message: String(message).slice(0, 200) });
-  stats.recentErrors.length = Math.min(stats.recentErrors.length, 20);
+function errorKind(message) {
+  const m = String(message);
+  if (/rejected the key|401|403/.test(m)) return 'key';
+  if (/took longer|timeout|timed out/i.test(m)) return 'timeout';
+  if (/429|limit/i.test(m)) return 'limit';
+  if (/reach|ECONN|ENOTFOUND|fetch failed/i.test(m)) return 'network';
+  return 'other';
 }
 
-function statsView() {
+function noteError(where, message) {
+  const d = day();
+  d.failures += 1;
+  bump(d.errorKinds, `${where}:${errorKind(message)}`);
+  usage.errors.unshift({ at: new Date().toISOString(), where, message: String(message).slice(0, 200) });
+  usage.errors.length = Math.min(usage.errors.length, 30);
+}
+
+let usageLoaded = false;
+
+/** Loads the saved counters and adds what was counted before they loaded. */
+async function loadUsage() {
+  if (usageLoaded || !store || !storeOk) return;
+  try {
+    const saved = await store.loadRow(USAGE_ROW);
+    usageLoaded = true;
+    if (!saved || typeof saved !== 'object' || !saved.days) return;
+    const mine = usage;
+    usage = {
+      days: saved.days || {},
+      devices: saved.devices || [],
+      errors: saved.errors || [],
+      salt: saved.salt || mine.salt,
+    };
+    for (const [k, d] of Object.entries(usage.days)) usage.days[k] = { ...emptyDay(), ...d };
+    for (const [k, d] of Object.entries(mine.days)) {
+      const t = (usage.days[k] ||= emptyDay());
+      for (const [f, v] of Object.entries(d)) {
+        if (typeof v === 'number') t[f] = (t[f] || 0) + v;
+        else if (Array.isArray(v)) t[f] = [...new Set([...(t[f] || []), ...v])];
+        else if (v && typeof v === 'object') for (const [m, n] of Object.entries(v)) bump((t[f] ||= {}), m, n);
+      }
+    }
+    usage.devices = [...new Set([...usage.devices, ...mine.devices])].slice(0, DEVICE_CAP);
+    usage.errors = [...mine.errors, ...usage.errors].slice(0, 30);
+    usageDirty = true;
+  } catch (e) {
+    console.error('Could not load usage counters:', e.message);
+  } finally {
+    deviceSet = new Set(usage.devices);
+  }
+}
+
+async function saveUsage() {
+  if (!usageDirty || !store || !storeOk) return;
+  usageDirty = false;
+  try {
+    await store.saveRow(USAGE_ROW, usage);
+  } catch (e) {
+    usageDirty = true;
+    console.error('Could not save usage counters:', e.message);
+  }
+}
+
+function sumDays(keys) {
+  const t = emptyDay();
+  const devs = new Set();
+  for (const k of keys) {
+    const d = usage.days[k];
+    if (!d) continue;
+    for (const f of ['chats', 'callTurns', 'userMessages', 'failures', 'tts', 'ttsChars', 'chatMsSum', 'chatMsN', 'callMsSum', 'callMsN', 'ttsMsSum', 'ttsMsN', 'newDevices']) {
+      t[f] += d[f] || 0;
+    }
+    for (const [m, n] of Object.entries(d.models || {})) bump(t.models, m, n);
+    for (const [m, n] of Object.entries(d.voices || {})) bump(t.voices, m, n);
+    for (const [m, n] of Object.entries(d.errorKinds || {})) bump(t.errorKinds, m, n);
+    for (const id of d.devices || []) devs.add(id);
+  }
+  const avg = (s, n) => (n ? Math.round(s / n) : null);
   return {
-    since: stats.since,
-    uptimeSeconds: Math.round(process.uptime()),
-    chats: stats.chats,
-    callTurns: stats.callTurns,
-    failures: stats.failures,
-    ttsRequests: stats.ttsRequests,
-    ttsChars: stats.ttsChars,
-    ttsCharsToday: stats.ttsDay === today() ? stats.ttsCharsToday : 0,
-    chatFirstReplyMs: median(stats.chatFirstMs),
-    callFirstReplyMs: median(stats.callFirstMs),
-    ttsMs: median(stats.ttsMs),
-    recentErrors: stats.recentErrors,
+    chats: t.chats,
+    callTurns: t.callTurns,
+    messages: t.userMessages,
+    failures: t.failures,
+    tts: t.tts,
+    ttsChars: t.ttsChars,
+    activeDevices: devs.size,
+    newDevices: t.newDevices,
+    chatReplyMs: avg(t.chatMsSum, t.chatMsN),
+    callReplyMs: avg(t.callMsSum, t.callMsN),
+    ttsMs: avg(t.ttsMsSum, t.ttsMsN),
+    models: t.models,
+    voices: t.voices,
+    errorKinds: t.errorKinds,
   };
 }
 
-function today() {
-  return new Date().toISOString().slice(0, 10);
+function lastDays(n) {
+  const out = [];
+  const now = Date.now();
+  for (let i = n - 1; i >= 0; i--) out.push(today(new Date(now - i * 86400e3)));
+  return [...new Set(out)];
+}
+
+function statsView(n = 30) {
+  const days = lastDays(Math.min(Math.max(n, 1), USAGE_DAYS));
+  return {
+    timezone: STATS_TZ,
+    today: sumDays([today()]),
+    week: sumDays(lastDays(7)),
+    month: sumDays(lastDays(30)),
+    range: sumDays(days),
+    totalDevices: deviceSet.size,
+    series: days.map((k) => {
+      const d = usage.days[k] || emptyDay();
+      return {
+        day: k,
+        chats: d.chats,
+        callTurns: d.callTurns,
+        messages: d.userMessages,
+        failures: d.failures,
+        tts: d.tts,
+        devices: (d.devices || []).length,
+        chatReplyMs: d.chatMsN ? Math.round(d.chatMsSum / d.chatMsN) : null,
+        callReplyMs: d.callMsN ? Math.round(d.callMsSum / d.callMsN) : null,
+      };
+    }),
+    recent: {
+      chatReplyMs: median(recent.chat),
+      callReplyMs: median(recent.call),
+      ttsMs: median(recent.tts),
+    },
+    recentErrors: usage.errors.slice(0, 20),
+    since: Object.keys(usage.days).sort()[0] || today(),
+    serverStartedAt: startedAt,
+    uptimeSeconds: Math.round(process.uptime()),
+  };
 }
 
 // ---------------------------------------------------------------- routes
@@ -808,8 +1001,14 @@ async function chat(req, res) {
   if (Number.isFinite(body.max_tokens)) upstreamBody.max_tokens = Math.min(Math.max(1, body.max_tokens), 4096);
   if (call) upstreamBody.max_tokens = Math.min(upstreamBody.max_tokens || Infinity, cfg.callMaxTokens);
   if (Number.isFinite(body.temperature)) upstreamBody.temperature = Math.min(Math.max(0, body.temperature), 2);
-  if (call) stats.callTurns += 1;
-  else stats.chats += 1;
+  {
+    const d = day();
+    if (call) d.callTurns += 1;
+    else d.chats += 1;
+    d.userMessages += 1;
+    bump(d.models, model);
+    noteDevice(req);
+  }
 
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), LIMITS.upstreamTimeoutMs);
@@ -834,7 +1033,7 @@ async function chat(req, res) {
     for await (const chunk of up.body) {
       if (first) {
         first = false;
-        note(call ? stats.callFirstMs : stats.chatFirstMs, Date.now() - started);
+        noteTime(call ? 'call' : 'chat', Date.now() - started);
       }
       if (!res.write(chunk)) await new Promise((r) => res.once('drain', r));
     }
@@ -919,7 +1118,7 @@ async function speak(provider, text, cfg) {
     pitch: cfg.pitch,
     signal: AbortSignal.timeout(20000),
   });
-  note(stats.ttsMs, Date.now() - started);
+  noteTime('tts', Date.now() - started);
   ttsCache.set(key, out);
   if (ttsCache.size > 80) ttsCache.delete(ttsCache.keys().next().value);
   return out;
@@ -937,11 +1136,7 @@ async function tts(req, res) {
   const t = String(text || '').trim();
   if (!t) throw bad('text is empty.');
   if (t.length > LIMITS.ttsChars) throw bad(`text is too long (${LIMITS.ttsChars} characters at most).`, 413);
-  if (stats.ttsDay !== today()) {
-    stats.ttsDay = today();
-    stats.ttsCharsToday = 0;
-  }
-  if (cfg.ttsDailyChars && stats.ttsCharsToday + t.length > cfg.ttsDailyChars) {
+  if (cfg.ttsDailyChars && day().ttsChars + t.length > cfg.ttsDailyChars) {
     throw Object.assign(bad('Today\'s voice limit is used up.', 429), { code: 'tts_daily_limit' });
   }
   if (!ttsAllowance(clientIp(req), t.length)) {
@@ -954,11 +1149,11 @@ async function tts(req, res) {
     noteError('voice', e.message || e);
     throw Object.assign(bad(String(e.message || e), 502), { code: 'tts_failed' });
   }
-  if (!out.cached) {
-    stats.ttsCharsToday += t.length;
-    stats.ttsChars += t.length;
-  }
-  stats.ttsRequests += 1;
+  const d = day();
+  if (!out.cached) d.ttsChars += t.length;
+  d.tts += 1;
+  bump(d.voices, `${provider.type}:${provider.name}`);
+  noteDevice(req);
   res.writeHead(200, { 'Content-Type': out.type, 'Content-Length': out.audio.length, 'Cache-Control': 'no-store', ...CORS });
   res.end(out.audio);
 }
@@ -1093,7 +1288,7 @@ async function route(req, res) {
   if (p === '/admin/stats' && m === 'GET') {
     requireAdmin(req);
     return send(res, 200, {
-      stats: statsView(),
+      stats: statsView(Number(url.searchParams.get('days')) || 30),
       version: VERSION,
       store: store.kind,
       storeOk,
@@ -1134,14 +1329,20 @@ async function start({ port = PORT } = {}) {
   server.headersTimeout = 66000;
   await new Promise((r) => server.listen(port, '0.0.0.0', r));
   await loadConfig();
+  await loadUsage();
   // Retry the database in the background if it was asleep or unreachable.
   if (!storeOk) {
     const retry = setInterval(async () => {
       if (storeOk) return clearInterval(retry);
       await loadConfig();
+      await loadUsage();
     }, 15000);
     retry.unref();
   }
+  // Save the usage counters every minute, and before Render stops the server.
+  const saver = setInterval(saveUsage, 60000);
+  saver.unref();
+  server.on('close', () => clearInterval(saver));
   console.log(`Bangla AI server on :${server.address().port} (store: ${store.kind}, ok: ${storeOk})`);
   return server;
 }
@@ -1161,10 +1362,17 @@ if (require.main === module) {
     );
   }
   start();
+  for (const sig of ['SIGTERM', 'SIGINT']) {
+    process.once(sig, async () => {
+      await Promise.race([saveUsage(), new Promise((r) => setTimeout(r, 4000))]);
+      process.exit(0);
+    });
+  }
 }
 
 module.exports = {
   start,
+  saveUsage,
   cleanPatch,
   publicConfig,
   adminConfig,

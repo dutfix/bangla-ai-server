@@ -22,7 +22,7 @@ class MessageTile extends StatefulWidget {
     required this.busy,
     required this.onRegenerate,
     required this.onEdit,
-    required this.onSpeak,
+    this.onSpeak,
   });
 
   final ChatMessage message;
@@ -40,7 +40,9 @@ class MessageTile extends StatefulWidget {
   final bool busy;
   final VoidCallback onRegenerate;
   final ValueChanged<String> onEdit;
-  final VoidCallback onSpeak;
+
+  /// Null when the admin has voice off: no read-aloud button.
+  final VoidCallback? onSpeak;
 
   @override
   State<MessageTile> createState() => _MessageTileState();
@@ -78,7 +80,14 @@ class _MessageTileState extends State<MessageTile> {
         ChatLayout.side,
         ChatLayout.gap,
       ),
-      child: m.isUser ? _user(context) : _assistant(context),
+      // Full width, so a user message sits on the right edge and a reply on
+      // the left, however short either is. (The list centres each row in a
+      // max-width column; without this a short message shrank to its own
+      // width and ended up in the middle.)
+      child: SizedBox(
+        width: double.infinity,
+        child: m.isUser ? _user(context) : _assistant(context),
+      ),
     );
   }
 
@@ -296,14 +305,17 @@ class _MessageTileState extends State<MessageTile> {
             color: _copied ? Palette.success : null,
             onPressed: _copy,
           ),
-          SmallIconAction(
-            icon: widget.reading ? HeroIcons.stopSolid : HeroIcons.speakerWave,
-            tooltip: widget.reading
-                ? context.l10n.stopReading
-                : context.l10n.readAloud,
-            color: widget.reading ? s.primary : null,
-            onPressed: widget.onSpeak,
-          ),
+          if (widget.onSpeak != null)
+            SmallIconAction(
+              icon: widget.reading
+                  ? HeroIcons.stopSolid
+                  : HeroIcons.speakerWave,
+              tooltip: widget.reading
+                  ? context.l10n.stopReading
+                  : context.l10n.readAloud,
+              color: widget.reading ? s.primary : null,
+              onPressed: widget.onSpeak,
+            ),
         ],
         if (widget.isLastReply)
           SmallIconAction(

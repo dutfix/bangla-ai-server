@@ -32,6 +32,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   final _scaffold = GlobalKey<ScaffoldState>();
   final _input = TextEditingController();
   final _focus = FocusNode();
+  // Keeps the message box (and its open keyboard) alive if the layout
+  // around it changes while the user types.
+  final _composerKey = GlobalKey(debugLabel: 'composer');
+  bool? _lastWide;
+  double? _lastWidth;
   final _scroll = ScrollController();
   // Scroll state lives in notifiers so scrolling rebuilds only the jump
   // button and the divider, never the whole screen.
@@ -79,11 +84,23 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// The chat history stays open beside the chat on tablets and unfolded
   /// foldables. A phone on its side is wide but short, so it keeps the
   /// drawer and gives the chat the whole width.
+  ///
+  /// While the message box has focus the layout is kept as it is: the
+  /// keyboard makes the screen shorter (on the web the whole page shrinks),
+  /// and switching layouts then would close the keyboard mid-typing.
   bool get _wide {
     final size = MediaQuery.sizeOf(context);
-    return size.width >= Layout.railBreakpoint &&
+    final wide =
+        size.width >= Layout.railBreakpoint &&
         (size.height >= Layout.railMinHeight ||
             size.width >= Layout.railAlwaysWidth);
+    final last = _lastWide;
+    // Only a width change (rotation, split screen) may switch it now.
+    if (last != null && _focus.hasFocus && size.width == _lastWidth) {
+      return last;
+    }
+    _lastWidth = size.width;
+    return _lastWide = wide;
   }
 
   void _closeDrawer() {
@@ -297,14 +314,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final mq = MediaQuery.of(context);
     final room = height - mq.padding.vertical;
     final cramped = room < 460;
-    Widget chrome(Widget child) => cramped
-        ? MediaQuery(
-            data: mq.copyWith(
-              textScaler: mq.textScaler.clamp(maxScaleFactor: 1.3),
-            ),
-            child: child,
-          )
-        : child;
+    // Always the same MediaQuery wrapper, cramped or not: when the keyboard
+    // opens the chat gets shorter and turns cramped, and a wrapper that only
+    // appeared then would rebuild the message box and close the keyboard.
+    Widget chrome(Widget child) => MediaQuery(
+      data: cramped
+          ? mq.copyWith(textScaler: mq.textScaler.clamp(maxScaleFactor: 1.3))
+          : mq,
+      child: child,
+    );
     return Column(
       children: [
         chrome(
@@ -403,6 +421,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                         child: Padding(
                           padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
                           child: Composer(
+                            key: _composerKey,
                             controller: _input,
                             focusNode: _focus,
                             generating: chat.generating,

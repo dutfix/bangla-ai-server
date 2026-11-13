@@ -29,7 +29,12 @@ const VERSION = '1.1.0';
 // emails a 6-digit code (through Resend's HTTP API: Render's free plan blocks
 // SMTP ports), and the code is exchanged for a signed token.
 const ADMIN_EMAIL = normalizeEmail(env.ADMIN_EMAIL);
-const RESEND_API_KEY = (env.RESEND_API_KEY || '').trim();
+const ENV_RESEND_KEY = (env.RESEND_API_KEY || '').trim();
+// The mailer key comes from RESEND_API_KEY when it looks like a Resend key
+// (re_...), else from the database (set once through /admin/setup-mailer).
+let RESEND_API_KEY = ENV_RESEND_KEY.startsWith('re_') ? ENV_RESEND_KEY : '';
+// One-time setup: sha256 of a random token held by whoever deployed this.
+const SETUP_TOKEN_SHA256 = (env.SETUP_TOKEN_SHA256 || 'fa7f5895e018cfca4215719f907c9147fc5f67f5a0a0f59bd60ec860c459b669').trim();
 const RESEND_API_URL = env.RESEND_API_URL || 'https://api.resend.com/emails';
 const MAIL_FROM = env.MAIL_FROM || 'Bangla AI <onboarding@resend.dev>';
 // Signs admin tokens. Without TOKEN_SECRET a random one is used, so a
@@ -221,6 +226,17 @@ class PgStore {
       [cfg],
     );
   }
+  // Row 2 holds server-only secrets (never sent to any app).
+  async loadSecrets() {
+    const r = await this.pool.query(`SELECT data FROM ${CONFIG_TABLE} WHERE id = 2`);
+    return r.rows[0] ? r.rows[0].data : {};
+  }
+  async saveSecrets(data) {
+    await this.pool.query(
+      `INSERT INTO ${CONFIG_TABLE} (id, data, updated_at) VALUES (2, $1, now()) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = now()`,
+      [data],
+    );
+  }
 }
 
 class FileStore {
@@ -240,6 +256,17 @@ class FileStore {
     fs.mkdirSync(path.dirname(this.file), { recursive: true });
     fs.writeFileSync(this.file, JSON.stringify(cfg, null, 2));
   }
+  async loadSecrets() {
+    try {
+      return JSON.parse(fs.readFileSync(`${this.file}.secrets`, 'utf8'));
+    } catch {
+      return {};
+    }
+  }
+  async saveSecrets(data) {
+    fs.mkdirSync(path.dirname(this.file), { recursive: true });
+    fs.writeFileSync(`${this.file}.secrets`, JSON.stringify(data));
+  }
 }
 
 function makeStore() {
@@ -254,7 +281,40 @@ let config = seedConfig();
 let storeOk = false;
 let storeError = '';
 
+async function loadSecrets() {
+  try {
+    const sec = (await store.loadSecrets()) || {};
+    if (!RESEND_API_KEY && typeof sec.resendApiKey === 'string' && sec.resendApiKey.startsWith('re_')) {
+      RESEND_API_KEY = sec.resendApiKey;
+      console.log('Mailer key loaded from the database.');
+    }
+  } catch (e) {
+    console.error(`Could not load server secrets: ${e.message}`);
+  }
+}
+
+async function setupMailer(req, res) {
+  const token = String(req.headers['x-setup-token'] || '');
+  const hash = crypto.createHash('sha256').update(token).digest('hex');
+  if (!SETUP_TOKEN_SHA256 || !token || !safeEqual(hash, SETUP_TOKEN_SHA256)) {
+    throw Object.assign(bad('Not allowed.', 403), { code: 'forbidden' });
+  }
+  const { resendApiKey } = await readJson(req);
+  const key = String(resendApiKey || '').trim();
+  if (!/^re_[A-Za-z0-9_]{20,}$/.test(key)) throw bad('That is not a Resend API key.', 400);
+  const sec = (await store.loadSecrets()) || {};
+  await store.saveSecrets({ ...sec, resendApiKey: key });
+  RESEND_API_KEY = key;
+  console.log('Mailer key saved to the database.');
+  return send(res, 200, { ok: true });
+}
+
 async function loadConfig() {
+  await loadConfigOnly();
+  await loadSecrets();
+}
+
+async function loadConfigOnly() {
   try {
     await store.init();
     const saved = await store.load();
@@ -698,6 +758,7 @@ async function route(req, res) {
   }
   if (p === '/v1/chat' && m === 'POST') return chat(req, res);
 
+  if (p === '/admin/setup-mailer' && m === 'POST') return setupMailer(req, res);
   if (p === '/admin/request-code' && m === 'POST') return requestCode(req, res);
   if (p === '/admin/verify-code' && m === 'POST') return verifyCode(req, res);
   if (p === '/admin/login' && m === 'POST') {
@@ -762,9 +823,9 @@ if (require.main === module) {
   if (!RESEND_API_KEY) console.warn('Warning: RESEND_API_KEY is not set; sign-in codes cannot be emailed.');
   if (!env.TOKEN_SECRET) console.warn('Warning: TOKEN_SECRET is not set; a restart signs the admin out.');
   console.log(`Admin sign-in: email code (admin email set: ${Boolean(ADMIN_EMAIL)}, mailer set: ${Boolean(RESEND_API_KEY)}).`);
-  if (RESEND_API_KEY) {
+  if (ENV_RESEND_KEY) {
     // The key's shape only, never the key: helps spot a bad paste.
-    const k = RESEND_API_KEY;
+    const k = ENV_RESEND_KEY;
     console.log(
       `Resend key shape: ${k.length} chars, starts with re_: ${k.startsWith('re_')}, ` +
         `spaces inside: ${/\s/.test(k)}, non-ASCII: ${/[^\x21-\x7e]/.test(k)}, ` +

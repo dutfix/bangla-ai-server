@@ -312,5 +312,134 @@
   },
   "@modelFast": {
     "description": "Label for the \"auto/fast\" model"
+  },
+  "signIn": "Sign in",
+  "signUp": "Create account",
+  "authWelcome": "Welcome back",
+  "authWelcomeSub": "Sign in to your Bangla AI account.",
+  "authSignUpTitle": "New account",
+  "authSignUpSub": "It only takes a minute.",
+  "continueWithGoogle": "Continue with Google",
+  "orWithEmail": "or with email",
+  "fieldName": "Your name",
+  "fieldEmail": "Email",
+  "fieldPassword": "Password",
+  "fieldNewPassword": "New password",
+  "fieldCurrentPassword": "Current password",
+  "passwordHint": "At least 8 characters",
+  "showPassword": "Show password",
+  "hidePassword": "Hide password",
+  "forgotPassword": "Forgot password?",
+  "haveAccount": "Already have an account?",
+  "noAccount": "No account yet?",
+  "notNow": "Not now",
+  "errEmail": "Enter a valid email address",
+  "errPassword": "Use at least 8 characters",
+  "errName": "Enter your name",
+  "errWrongLogin": "The email or password is wrong.",
+  "errEmailTaken": "An account with this email already exists. Sign in instead.",
+  "errUseGoogle": "This email signs in with Google. Tap \"Continue with Google\".",
+  "errNetwork": "Check your internet and try again.",
+  "errTimeout": "The server is slow to answer. Try again.",
+  "errAccountsDown": "Accounts are unavailable right now. Try again soon.",
+  "errGeneric": "Something went wrong. Try again.",
+  "errWrongCode": "This code is wrong or has expired.",
+  "errCodeDigits": "Enter the 6-digit code",
+  "errTooManyTries": "Too many wrong tries. Get a new code.",
+  "errWrongCurrent": "The current password is wrong.",
+  "errImage": "This picture can't be used. Pick another one.",
+  "googleCancelled": "Google sign-in was cancelled.",
+  "googleFailed": "Google sign-in didn't work. Try again.",
+  "googleOff": "Google sign-in isn't set up yet. Use your email.",
+  "googleSigningIn": "Signing in with Google...",
+  "resetTitle": "Reset password",
+  "resetSub": "Enter your email and we'll send you a 6-digit code.",
+  "sendCode": "Send code",
+  "codeLabel": "6-digit code",
+  "setNewPassword": "Set new password",
+  "resendCode": "Resend code",
+  "codeResent": "A new code is on its way.",
+  "passwordChanged": "Password changed.",
+  "verifyTitle": "Verify your email",
+  "verifyNotSent": "The code couldn't be sent right now. Tap \"Resend code\" in a little while.",
+  "verifyButton": "Verify",
+  "emailVerified": "Email verified",
+  "emailNotVerified": "Email not verified yet",
+  "verifyNow": "Verify now",
+  "checkSpam": "Can't find it? Check your Spam folder.",
+  "profile": "Profile",
+  "profileSub": "Your name, picture and account",
+  "changePhoto": "Change photo",
+  "addPhoto": "Add a photo",
+  "removePhoto": "Remove photo",
+  "choosePhoto": "Choose from gallery",
+  "takePhoto": "Take a photo",
+  "photoUpdated": "Photo updated",
+  "photoRemoved": "Photo removed",
+  "nameSaved": "Name saved",
+  "accountSection": "Account",
+  "signInMethod": "Sign-in method",
+  "methodGoogle": "Google",
+  "methodEmail": "Email and password",
+  "methodBoth": "Google, and email and password",
+  "changePassword": "Change password",
+  "setPassword": "Set a password",
+  "setPasswordSub": "To also sign in with your email",
+  "otherDevicesSignedOut": "Other devices were signed out.",
+  "signOut": "Sign out",
+  "signOutConfirm": "Sign out?",
+  "signOutBody": "Chats on this device stay here.",
+  "signedOut": "Signed out",
+  "signInToChat": "Sign in to chat.",
+  "signInRequiredSub": "You need an account to chat. Sign in or create one.",
+  "sidebarSignIn": "Sign in",
+  "sidebarSignInSub": "or create an account",
+  "errTooSoon": "Try again in {seconds} seconds.",
+  "@errTooSoon": {
+    "placeholders": {
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
+  "resendIn": "Resend in {seconds}s",
+  "@resendIn": {
+    "placeholders": {
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
+  "codeSentTo": "We sent a 6-digit code to {email}.",
+  "@codeSentTo": {
+    "placeholders": {
+      "email": {
+        "type": "String"
+      }
+    }
+  },
+  "resetCodeSent": "If an account uses {email}, a code is on its way.",
+  "@resetCodeSent": {
+    "placeholders": {
+      "email": {
+        "type": "String"
+      }
+    }
+  },
+  "welcomeName": "Welcome, {name}!",
+  "@welcomeName": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "triesLeft": "That code is wrong. {count} tries left.",
+  "@triesLeft": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
   }
 }

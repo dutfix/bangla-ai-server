@@ -16,7 +16,8 @@ class AgentText {
   String t(String bn, String english) => en ? english : bn;
 
   String get myAgents => t('আমার এজেন্ট', 'My agents');
-  String get chooseAgent => t('কার সাথে কথা বলবেন?', 'Who do you want to talk to?');
+  String get chooseAgent =>
+      t('কার সাথে কথা বলবেন?', 'Who do you want to talk to?');
   String get allSame => t(
     'চারজনই সব কাজ পারে: ওয়েবে খোঁজা, মনে রাখা, নোট, রিমাইন্ডার আর পেছনের কাজ।',
     'All four can do everything: search the web, remember, notes, reminders and background tasks.',
@@ -61,7 +62,8 @@ class AgentText {
     'Agents do big research jobs in the background, even with the app closed.',
   );
   String get newTask => t('নতুন কাজ', 'New task');
-  String get taskGoal => t('কী করতে হবে? পুরো কথাটা লিখুন', 'What should it do? Write it in full');
+  String get taskGoal =>
+      t('কী করতে হবে? পুরো কথাটা লিখুন', 'What should it do? Write it in full');
   String get start => t('শুরু করুন', 'Start');
   String get stopTask => t('থামান', 'Stop');
   String get saveAsNote => t('নোট করুন', 'Save as note');
@@ -81,9 +83,13 @@ class AgentText {
   String get reminderNow => t('রিমাইন্ডার', 'Reminder');
   String get ok => t('ঠিক আছে', 'OK');
   String get open => t('খুলুন', 'Open');
-  String get taskStartedRoutine => t('এজেন্ট কাজটা শুরু করেছে, ফলাফল কাজ পাতায় আসবে।', 'The agent started the task; the result will appear in Tasks.');
+  String get taskStartedRoutine => t(
+    'এজেন্ট কাজটা শুরু করেছে, ফলাফল কাজ পাতায় আসবে।',
+    'The agent started the task; the result will appear in Tasks.',
+  );
   String taskDone(String title) => t('কাজ শেষ: $title', 'Task done: $title');
-  String taskFailed(String title) => t('কাজ হয়নি: $title', 'Task failed: $title');
+  String taskFailed(String title) =>
+      t('কাজ হয়নি: $title', 'Task failed: $title');
 
   String repeat(String r) => switch (r) {
     'daily' => t('প্রতিদিন', 'Every day'),
@@ -103,7 +109,10 @@ class AgentText {
 
   /// What a tool is doing, for the line above a reply.
   String tool(String name, bool done) => switch (name) {
-    'web_search' => done ? t('ওয়েবে খুঁজেছি', 'Searched the web') : t('ওয়েবে খুঁজছি', 'Searching the web'),
+    'web_search' =>
+      done
+          ? t('ওয়েবে খুঁজেছি', 'Searched the web')
+          : t('ওয়েবে খুঁজছি', 'Searching the web'),
     'read_webpage' => done ? t('পড়েছি', 'Read') : t('পড়ছি', 'Reading'),
     'get_weather' => t('আবহাওয়া', 'Weather'),
     'get_time' => t('সময়', 'Time'),

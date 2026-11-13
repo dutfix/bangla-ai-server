@@ -537,9 +537,7 @@ class AgentStore extends ChangeNotifier {
     required String text,
     required String agent,
   }) {
-    final old = id == null
-        ? null
-        : skills.where((k) => k.id == id).firstOrNull;
+    final old = id == null ? null : skills.where((k) => k.id == id).firstOrNull;
     if (old != null) {
       old
         ..title = title
@@ -690,11 +688,7 @@ class AgentStore extends ChangeNotifier {
 
   Future<String?> _startFromReminder(ReminderItem r) async {
     try {
-      final t = await startTask(
-        agent: r.agent,
-        title: r.text,
-        goal: r.task,
-      );
+      final t = await startTask(agent: r.agent, title: r.text, goal: r.task);
       return t.id;
     } catch (e) {
       debugPrint('Routine task could not start: $e');

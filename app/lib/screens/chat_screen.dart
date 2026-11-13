@@ -21,6 +21,8 @@ import '../widgets/message_tile.dart';
 import '../widgets/model_sheet.dart';
 import '../widgets/sidebar.dart';
 import 'agents_screen.dart';
+import 'auth_screen.dart';
+import 'profile_screen.dart';
 import 'settings_screen.dart';
 import 'voice_mode_screen.dart';
 
@@ -61,6 +63,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     // Reminders ring and background tasks are followed while the app runs.
     sv.agents.start();
     sv.agents.addListener(_onAgents);
+    final account = sv.account;
+    if (account != null) {
+      // Finishes a Google sign-in that came back to the page, if any.
+      unawaited(account.start());
+      account.addListener(_checkAccount);
+      sv.settings.addListener(_checkAccount);
+      WidgetsBinding.instance.addPostFrameCallback((_) => _checkAccount());
+    }
     _scroll.addListener(() {
       // The list is reversed: offset 0 is the newest message.
       final jump = _scroll.hasClients && _scroll.offset > 400;
@@ -125,10 +135,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           ].join('\n\n'),
         ),
         actions: [
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: Text(w.ok),
-          ),
+          FilledButton(onPressed: () => Navigator.pop(ctx), child: Text(w.ok)),
         ],
       ),
     );
@@ -147,9 +154,57 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     ),
   );
 
+  bool _authOpen = false;
+
+  /// Shows the sign-in page when it is needed: a Google sign-in is finishing
+  /// or came back with an error, the admin requires accounts, or this is the
+  /// first time the app opens (once; "Not now" skips it).
+  void _checkAccount() {
+    final a = sv.account;
+    if (a == null || _authOpen || !mounted) return;
+    final required = sv.settings.remote.requireSignIn;
+    final show =
+        a.googleBusy ||
+        a.pendingError != null ||
+        (!a.signedIn && (required || !a.introSeen));
+    if (!show) return;
+    _authOpen = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) {
+        _authOpen = false;
+        return;
+      }
+      _focus.unfocus();
+      await Navigator.of(context).push(
+        MaterialPageRoute<bool>(
+          fullscreenDialog: true,
+          builder: (_) => AuthScreen(
+            services: sv,
+            required: required,
+            mode: a.introSeen ? AuthMode.signIn : AuthMode.signUp,
+          ),
+        ),
+      );
+      _authOpen = false;
+      if (mounted && !a.signedIn && sv.settings.remote.requireSignIn) {
+        // Still required and not signed in (for example, the page was closed
+        // by the system back gesture): show it again.
+        _checkAccount();
+      } else if (mounted &&
+          a.signedIn &&
+          a.justCreated &&
+          a.user?.emailVerified == true) {
+        a.justCreated = false;
+        showSnack(context, context.l10n.welcomeName(a.user!.name));
+      }
+    });
+  }
+
   @override
   void dispose() {
     sv.agents.removeListener(_onAgents);
+    sv.account?.removeListener(_checkAccount);
+    sv.settings.removeListener(_checkAccount);
     WidgetsBinding.instance.removeObserver(this);
     _input.dispose();
     _focus.dispose();
@@ -337,6 +392,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     return false;
   }
 
+  /// Profile when signed in, else the sign-in page.
+  void _openAccount() {
+    final a = sv.account;
+    if (a == null) return;
+    _push(a.signedIn ? ProfileScreen(services: sv) : AuthScreen(services: sv));
+  }
+
   Widget _sidebar() => ListenableBuilder(
     listenable: Listenable.merge([sv.chat, sv.agents]),
     builder: (context, _) => ChatSidebar(
@@ -348,6 +410,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       onSettings: () => _push(SettingsScreen(services: sv)),
       onAgents: _openAgents,
       agentsBadge: sv.agents.unseenTasks,
+      account: sv.account,
+      onAccount: _openAccount,
     ),
   );
 
@@ -376,7 +440,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   Widget _chatBody(BuildContext context, bool wide) {
     return ListenableBuilder(
-      listenable: Listenable.merge([sv.chat, sv.settings, sv.readAloud, sv.agents]),
+      listenable: Listenable.merge([
+        sv.chat,
+        sv.settings,
+        sv.readAloud,
+        sv.agents,
+      ]),
       builder: (context, _) {
         return LayoutBuilder(
           builder: (context, box) => _chatColumn(context, wide, box.maxHeight),

@@ -505,3 +505,34 @@ test('admin overview stats, prompt defaults and prompt try-out', async () => {
   assert.match(lastUpstream.body.messages[0].content, /Speak briefly\./);
   assert.match(lastUpstream.body.messages[0].content, /natural spoken Bangla/);
 });
+
+test('user accounts: separate from the admin; admin can require sign-in for chat', async () => {
+  const admin = { Authorization: `Bearer ${token}` };
+  const su = await j('/v1/auth/signup', { method: 'POST', body: { email: 'user1@example.com', password: 'userpass123', name: 'User One' } });
+  assert.equal(su.status, 201);
+  const user = { Authorization: `Bearer ${su.body.token}` };
+  assert.equal((await j('/admin/config', { headers: user })).status, 401, 'a user token is not an admin token');
+  assert.equal((await j('/admin/stats', { headers: user })).status, 401);
+  assert.equal((await j('/v1/me', { headers: admin })).status, 401, 'an admin token is not a user token');
+
+  let cfg = await j('/v1/config');
+  assert.equal(cfg.body.requireSignIn, false);
+  assert.equal(cfg.body.accounts.email, true);
+  assert.equal(cfg.body.accounts.google, false);
+
+  const st = await j('/admin/stats', { headers: admin });
+  assert.equal(st.body.users.total, 1);
+
+  const put = await j('/admin/config', { method: 'PUT', headers: admin, body: { requireSignIn: true } });
+  assert.equal(put.status, 200);
+  cfg = await j('/v1/config');
+  assert.equal(cfg.body.requireSignIn, true);
+  const body = { messages: [{ role: 'user', content: 'hi' }], stream: false };
+  const anon = await j('/v1/chat', { method: 'POST', body });
+  assert.equal(anon.status, 401);
+  assert.equal(anon.body.error.code, 'sign_in_required');
+  const signed = await j('/v1/chat', { method: 'POST', headers: user, body });
+  assert.notEqual(signed.status, 401);
+  await j('/admin/config', { method: 'PUT', headers: admin, body: { requireSignIn: false } });
+  assert.notEqual((await j('/v1/chat', { method: 'POST', body })).status, 401);
+});

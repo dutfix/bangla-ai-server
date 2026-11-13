@@ -30,6 +30,7 @@ class CloudVoice {
           headers: {
             'Content-Type': 'application/json',
             if (deviceId.isNotEmpty) 'X-Device': deviceId,
+            ...Backend.authHeaders,
           },
           body: jsonEncode({'text': text}),
         )

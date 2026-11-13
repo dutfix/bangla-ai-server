@@ -639,4 +639,282 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get modelFast => 'Fast';
+
+  @override
+  String get signIn => 'Sign in';
+
+  @override
+  String get signUp => 'Create account';
+
+  @override
+  String get authWelcome => 'Welcome back';
+
+  @override
+  String get authWelcomeSub => 'Sign in to your Bangla AI account.';
+
+  @override
+  String get authSignUpTitle => 'New account';
+
+  @override
+  String get authSignUpSub => 'It only takes a minute.';
+
+  @override
+  String get continueWithGoogle => 'Continue with Google';
+
+  @override
+  String get orWithEmail => 'or with email';
+
+  @override
+  String get fieldName => 'Your name';
+
+  @override
+  String get fieldEmail => 'Email';
+
+  @override
+  String get fieldPassword => 'Password';
+
+  @override
+  String get fieldNewPassword => 'New password';
+
+  @override
+  String get fieldCurrentPassword => 'Current password';
+
+  @override
+  String get passwordHint => 'At least 8 characters';
+
+  @override
+  String get showPassword => 'Show password';
+
+  @override
+  String get hidePassword => 'Hide password';
+
+  @override
+  String get forgotPassword => 'Forgot password?';
+
+  @override
+  String get haveAccount => 'Already have an account?';
+
+  @override
+  String get noAccount => 'No account yet?';
+
+  @override
+  String get notNow => 'Not now';
+
+  @override
+  String get errEmail => 'Enter a valid email address';
+
+  @override
+  String get errPassword => 'Use at least 8 characters';
+
+  @override
+  String get errName => 'Enter your name';
+
+  @override
+  String get errWrongLogin => 'The email or password is wrong.';
+
+  @override
+  String get errEmailTaken =>
+      'An account with this email already exists. Sign in instead.';
+
+  @override
+  String get errUseGoogle =>
+      'This email signs in with Google. Tap \"Continue with Google\".';
+
+  @override
+  String get errNetwork => 'Check your internet and try again.';
+
+  @override
+  String get errTimeout => 'The server is slow to answer. Try again.';
+
+  @override
+  String get errAccountsDown =>
+      'Accounts are unavailable right now. Try again soon.';
+
+  @override
+  String get errGeneric => 'Something went wrong. Try again.';
+
+  @override
+  String get errWrongCode => 'This code is wrong or has expired.';
+
+  @override
+  String get errCodeDigits => 'Enter the 6-digit code';
+
+  @override
+  String get errTooManyTries => 'Too many wrong tries. Get a new code.';
+
+  @override
+  String get errWrongCurrent => 'The current password is wrong.';
+
+  @override
+  String get errImage => 'This picture can\'t be used. Pick another one.';
+
+  @override
+  String get googleCancelled => 'Google sign-in was cancelled.';
+
+  @override
+  String get googleFailed => 'Google sign-in didn\'t work. Try again.';
+
+  @override
+  String get googleOff => 'Google sign-in isn\'t set up yet. Use your email.';
+
+  @override
+  String get googleSigningIn => 'Signing in with Google...';
+
+  @override
+  String get resetTitle => 'Reset password';
+
+  @override
+  String get resetSub => 'Enter your email and we\'ll send you a 6-digit code.';
+
+  @override
+  String get sendCode => 'Send code';
+
+  @override
+  String get codeLabel => '6-digit code';
+
+  @override
+  String get setNewPassword => 'Set new password';
+
+  @override
+  String get resendCode => 'Resend code';
+
+  @override
+  String get codeResent => 'A new code is on its way.';
+
+  @override
+  String get passwordChanged => 'Password changed.';
+
+  @override
+  String get verifyTitle => 'Verify your email';
+
+  @override
+  String get verifyNotSent =>
+      'The code couldn\'t be sent right now. Tap \"Resend code\" in a little while.';
+
+  @override
+  String get verifyButton => 'Verify';
+
+  @override
+  String get emailVerified => 'Email verified';
+
+  @override
+  String get emailNotVerified => 'Email not verified yet';
+
+  @override
+  String get verifyNow => 'Verify now';
+
+  @override
+  String get checkSpam => 'Can\'t find it? Check your Spam folder.';
+
+  @override
+  String get profile => 'Profile';
+
+  @override
+  String get profileSub => 'Your name, picture and account';
+
+  @override
+  String get changePhoto => 'Change photo';
+
+  @override
+  String get addPhoto => 'Add a photo';
+
+  @override
+  String get removePhoto => 'Remove photo';
+
+  @override
+  String get choosePhoto => 'Choose from gallery';
+
+  @override
+  String get takePhoto => 'Take a photo';
+
+  @override
+  String get photoUpdated => 'Photo updated';
+
+  @override
+  String get photoRemoved => 'Photo removed';
+
+  @override
+  String get nameSaved => 'Name saved';
+
+  @override
+  String get accountSection => 'Account';
+
+  @override
+  String get signInMethod => 'Sign-in method';
+
+  @override
+  String get methodGoogle => 'Google';
+
+  @override
+  String get methodEmail => 'Email and password';
+
+  @override
+  String get methodBoth => 'Google, and email and password';
+
+  @override
+  String get changePassword => 'Change password';
+
+  @override
+  String get setPassword => 'Set a password';
+
+  @override
+  String get setPasswordSub => 'To also sign in with your email';
+
+  @override
+  String get otherDevicesSignedOut => 'Other devices were signed out.';
+
+  @override
+  String get signOut => 'Sign out';
+
+  @override
+  String get signOutConfirm => 'Sign out?';
+
+  @override
+  String get signOutBody => 'Chats on this device stay here.';
+
+  @override
+  String get signedOut => 'Signed out';
+
+  @override
+  String get signInToChat => 'Sign in to chat.';
+
+  @override
+  String get signInRequiredSub =>
+      'You need an account to chat. Sign in or create one.';
+
+  @override
+  String get sidebarSignIn => 'Sign in';
+
+  @override
+  String get sidebarSignInSub => 'or create an account';
+
+  @override
+  String errTooSoon(String seconds) {
+    return 'Try again in $seconds seconds.';
+  }
+
+  @override
+  String resendIn(String seconds) {
+    return 'Resend in ${seconds}s';
+  }
+
+  @override
+  String codeSentTo(String email) {
+    return 'We sent a 6-digit code to $email.';
+  }
+
+  @override
+  String resetCodeSent(String email) {
+    return 'If an account uses $email, a code is on its way.';
+  }
+
+  @override
+  String welcomeName(String name) {
+    return 'Welcome, $name!';
+  }
+
+  @override
+  String triesLeft(String count) {
+    return 'That code is wrong. $count tries left.';
+  }
 }

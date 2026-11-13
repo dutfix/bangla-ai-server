@@ -24,6 +24,16 @@ abstract final class Backend {
   static const wakeTimeout = Duration(seconds: 90);
 
   static Uri uri(String path) => Uri.parse('$url$path');
+
+  /// The signed-in user's session token ('' when signed out). It goes with
+  /// chat and voice requests so the server knows who is asking.
+  static String authToken = '';
+
+  /// Called when the server says the session is no longer valid.
+  static void Function()? onSignedOut;
+
+  static Map<String, String> get authHeaders =>
+      authToken.isEmpty ? const {} : {'Authorization': 'Bearer $authToken'};
 }
 
 /// The server is asleep or unreachable.

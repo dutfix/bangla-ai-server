@@ -2,10 +2,12 @@ import 'package:material_ui/material_ui.dart';
 
 import '../l10n/l10n.dart';
 import '../models/chat.dart';
+import '../services/account_store.dart';
 import '../services/chat_store.dart';
 import '../theme/hero_icons.dart';
 import '../theme/tokens.dart';
 import 'agent_widgets.dart';
+import 'account_widgets.dart';
 import 'components.dart';
 
 /// Chat history: new chat, search, chats grouped by day, rename and delete,
@@ -21,6 +23,8 @@ class ChatSidebar extends StatefulWidget {
     required this.onSettings,
     this.onAgents,
     this.agentsBadge = 0,
+    this.account,
+    this.onAccount,
   });
 
   final ChatStore store;
@@ -35,6 +39,12 @@ class ChatSidebar extends StatefulWidget {
 
   /// Finished tasks the user has not opened yet.
   final int agentsBadge;
+
+  /// The signed-in account (or null for signed out); shown above Settings.
+  final AccountStore? account;
+
+  /// Opens the profile (signed in) or the sign-in page (signed out).
+  final VoidCallback? onAccount;
 
   @override
   State<ChatSidebar> createState() => _ChatSidebarState();
@@ -147,6 +157,11 @@ class _ChatSidebarState extends State<ChatSidebar> {
                       : AgentText.of(context).myAgents,
                   onTap: widget.onAgents!,
                 ),
+              if (widget.account != null && widget.onAccount != null)
+                ListenableBuilder(
+                  listenable: widget.account!,
+                  builder: (context, _) => _accountRow(widget.account!),
+                ),
               _footerRow(
                 icon: HeroIcons.cog6Tooth,
                 accent: Accent.flagRed,
@@ -207,6 +222,56 @@ class _ChatSidebarState extends State<ChatSidebar> {
       onChanged: (v) => setState(() => _query = v),
     ),
   ];
+
+  Widget _accountRow(AccountStore a) {
+    final t = Theme.of(context).textTheme;
+    final s = Theme.of(context).colorScheme;
+    final u = a.signedIn ? a.user : null;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      child: InkWell(
+        key: const ValueKey('sidebar-account'),
+        borderRadius: BorderRadius.circular(Radii.tile),
+        onTap: widget.onAccount,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          child: Row(
+            children: [
+              AccountAvatar(account: u, size: 36),
+              const SizedBox(width: Space.l),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      u == null
+                          ? context.l10n.sidebarSignIn
+                          : (u.name.isNotEmpty ? u.name : u.email),
+                      style: t.titleMedium,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      u == null ? context.l10n.sidebarSignInSub : u.email,
+                      style: t.bodySmall?.copyWith(color: s.onSurfaceVariant),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              HeroIcon(
+                HeroIcons.chevronRight,
+                size: 18,
+                color: s.onSurfaceVariant,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   Widget _footerRow({
     required HeroIconData icon,

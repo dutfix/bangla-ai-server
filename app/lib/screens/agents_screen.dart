@@ -220,7 +220,10 @@ class _AgentsScreenState extends State<AgentsScreen>
   // ---------------------------------------------------------------- memory
 
   Widget _memory(AgentText w) {
-    final items = store.memory.where((m) => _mine(m.agent) || (m.shared)).toList().reversed;
+    final items = store.memory
+        .where((m) => _mine(m.agent) || (m.shared))
+        .toList()
+        .reversed;
     return _list(
       [
         for (final m in items)
@@ -282,8 +285,9 @@ class _AgentsScreenState extends State<AgentsScreen>
   Widget _reminders(AgentText w) {
     final s = Theme.of(context).colorScheme;
     final t = Theme.of(context).textTheme;
-    final items = store.reminders.where((r) => _mine(r.agent) && !r.done).toList()
-      ..sort((a, b) => a.at.compareTo(b.at));
+    final items =
+        store.reminders.where((r) => _mine(r.agent) && !r.done).toList()
+          ..sort((a, b) => a.at.compareTo(b.at));
     return _list(
       [
         for (final r in items)
@@ -333,51 +337,44 @@ class _AgentsScreenState extends State<AgentsScreen>
     final items = store.tasks.where((t) => _mine(t.agent)).toList();
     return RefreshIndicator(
       onRefresh: store.pollTasks,
-      child: _list(
-        [
-          for (final t in items)
-            ListTile(
-              key: ValueKey(t.id),
-              leading: t.active
-                  ? SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2.4,
-                        color: s.primary,
-                      ),
-                    )
-                  : HeroIcon(
-                      t.status == 'done'
-                          ? HeroIcons.checkCircle
-                          : HeroIcons.xCircle,
-                      color: t.status == 'done' ? s.primary : s.error,
+      child: _list([
+        for (final t in items)
+          ListTile(
+            key: ValueKey(t.id),
+            leading: t.active
+                ? SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.4,
+                      color: s.primary,
                     ),
-              title: Text(
-                t.title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: !t.seen && t.status == 'done'
-                    ? const TextStyle(fontWeight: FontWeight.w700)
-                    : null,
-              ),
-              subtitle: _agentLine(
-                t.agent,
-                '${agentById(t.agent).nameFor(w.en)} · ${w.status(t.status)} · ${_when(t.created)}',
-              ),
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => TaskScreen(store: store, task: t),
-                ),
+                  )
+                : HeroIcon(
+                    t.status == 'done'
+                        ? HeroIcons.checkCircle
+                        : HeroIcons.xCircle,
+                    color: t.status == 'done' ? s.primary : s.error,
+                  ),
+            title: Text(
+              t.title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: !t.seen && t.status == 'done'
+                  ? const TextStyle(fontWeight: FontWeight.w700)
+                  : null,
+            ),
+            subtitle: _agentLine(
+              t.agent,
+              '${agentById(t.agent).nameFor(w.en)} · ${w.status(t.status)} · ${_when(t.created)}',
+            ),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => TaskScreen(store: store, task: t),
               ),
             ),
-        ],
-        EmptyState(
-          icon: HeroIcons.bolt,
-          title: w.noTasks,
-          sub: w.noTasksSub,
-        ),
-      ),
+          ),
+      ], EmptyState(icon: HeroIcons.bolt, title: w.noTasks, sub: w.noTasksSub)),
     );
   }
 
@@ -466,7 +463,8 @@ class _AgentsScreenState extends State<AgentsScreen>
         goal: r[1].trim(),
       );
     } catch (e) {
-      if (mounted) showSnack(context, e.toString().replaceFirst('Exception: ', ''));
+      if (mounted)
+        showSnack(context, e.toString().replaceFirst('Exception: ', ''));
     }
   }
 
@@ -499,8 +497,18 @@ class _AgentsScreenState extends State<AgentsScreen>
                     child: TextField(
                       controller: controllers[i],
                       autofocus: i == 0,
-                      minLines: multiline && i == fields.length - 1 && fields.length > 1 ? 4 : 1,
-                      maxLines: multiline && i == fields.length - 1 && fields.length > 1 ? 10 : 2,
+                      minLines:
+                          multiline &&
+                              i == fields.length - 1 &&
+                              fields.length > 1
+                          ? 4
+                          : 1,
+                      maxLines:
+                          multiline &&
+                              i == fields.length - 1 &&
+                              fields.length > 1
+                          ? 10
+                          : 2,
                       decoration: InputDecoration(labelText: fields[i]),
                     ),
                   ),
@@ -566,7 +574,9 @@ class _NoteScreenState extends State<NoteScreen> {
               onPressed: () {
                 widget.store.saveNote(
                   id: n.id,
-                  title: _title.text.trim().isEmpty ? n.title : _title.text.trim(),
+                  title: _title.text.trim().isEmpty
+                      ? n.title
+                      : _title.text.trim(),
                   content: _body.text,
                   agent: n.agent,
                 );

@@ -1,4 +1,5 @@
 import 'services/agent_store.dart';
+import 'services/account_store.dart';
 import 'services/call_controller.dart';
 import 'services/chat_controller.dart';
 import 'services/chat_store.dart';
@@ -19,6 +20,7 @@ class AppServices {
     required this.call,
     required this.readAloud,
     AgentStore? agents,
+    this.account,
   }) : agents = agents ?? chat.agents ?? AgentStore();
 
   final SettingsStore settings;
@@ -37,12 +39,21 @@ class AppServices {
   /// The four agents' memory, notes, reminders, skills and tasks.
   final AgentStore agents;
 
+  /// The user's account (sign-in, profile). Null in tests that don't need it.
+  final AccountStore? account;
+
   static Future<AppServices> create() async {
     final settings = SettingsStore();
     final chats = ChatStore();
     final agents = AgentStore(runsTimers: true);
     // All read from disk; none needs the others.
-    await Future.wait([settings.load(), chats.load(), agents.load()]);
+    late final AccountStore account;
+    await Future.wait([
+      settings.load(),
+      chats.load(),
+      agents.load(),
+      AccountStore.load().then((a) => account = a),
+    ]);
     agents.deviceId = settings.deviceId;
     final speaker = Speaker();
     final listener = SpeechListener();
@@ -65,6 +76,7 @@ class AppServices {
       ),
       readAloud: ReadAloud(settings, speaker),
       agents: agents,
+      account: account,
     );
   }
 }

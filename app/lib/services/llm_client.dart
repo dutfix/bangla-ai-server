@@ -8,8 +8,15 @@ import 'backend.dart';
 import 'settings_store.dart';
 
 class LlmException implements Exception {
-  LlmException(this.message, {this.waking = false});
+  LlmException(
+    this.message, {
+    this.waking = false,
+    this.signInRequired = false,
+  });
   final String message;
+
+  /// The admin requires accounts and the user is not signed in.
+  final bool signInRequired;
 
   /// The server was asleep; the message says it is waking up.
   final bool waking;
@@ -30,6 +37,7 @@ class LlmClient {
   Map<String, String> get _headers => {
     'Content-Type': 'application/json',
     if (settings.deviceId.isNotEmpty) 'X-Device': settings.deviceId,
+    ...Backend.authHeaders,
   };
 
   /// Streams the answer chunk by chunk (Server-Sent Events). Falls back to a
@@ -227,6 +235,11 @@ class LlmClient {
     } catch (_) {}
     if (detail.length > 200) detail = '${detail.substring(0, 200)}...';
     final t = L10n.current;
+    if (errCode == 'sign_in_required') {
+      // The admin requires accounts and this session is missing or ended.
+      Backend.onSignedOut?.call();
+      return LlmException(t.signInToChat, signInRequired: true);
+    }
     if (errCode == 'disabled') {
       settings.remoteDisabled(detail);
       return LlmException(detail.isNotEmpty ? detail : t.appDisabled);

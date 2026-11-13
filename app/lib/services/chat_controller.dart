@@ -58,6 +58,7 @@ class ChatController extends ChangeNotifier implements CallSink {
     agents?.agentId = agentId;
     newChat();
   }
+
   Conversation? get current => _current;
   List<ChatMessage> get messages => _current?.messages ?? const [];
 

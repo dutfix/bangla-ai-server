@@ -47,7 +47,9 @@ void main() {
 
     for (final s in sizes) {
       if (asInset) {
-        tester.view.viewInsets = FakeViewPadding(bottom: start.height - s.height);
+        tester.view.viewInsets = FakeViewPadding(
+          bottom: start.height - s.height,
+        );
       } else {
         tester.view.physicalSize = s;
       }
@@ -55,7 +57,8 @@ void main() {
     }
     hideCalls.addAll(
       tester.testTextInput.log.where(
-        (c) => c.method == 'TextInput.hide' || c.method == 'TextInput.clearClient',
+        (c) =>
+            c.method == 'TextInput.hide' || c.method == 'TextInput.clearClient',
       ),
     );
 
@@ -74,7 +77,12 @@ void main() {
     await typeThroughResize(
       tester,
       start: const Size(412, 860),
-      sizes: const [Size(412, 700), Size(412, 520), Size(412, 430), Size(412, 300)],
+      sizes: const [
+        Size(412, 700),
+        Size(412, 520),
+        Size(412, 430),
+        Size(412, 300),
+      ],
     );
   });
 

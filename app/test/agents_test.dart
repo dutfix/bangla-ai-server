@@ -38,15 +38,43 @@ void main() {
     final store = ChatStore(directory: () async => dir);
     await store.load();
     final ag = AgentStore();
-    ag.memory.add(MemoryItem(id: 'm1', text: 'shared', agent: 'mita', shared: true));
+    ag.memory.add(
+      MemoryItem(id: 'm1', text: 'shared', agent: 'mita', shared: true),
+    );
     ag.memory.add(MemoryItem(id: 'm2', text: 'mine', agent: 'shongket'));
     ag.memory.add(MemoryItem(id: 'm3', text: 'not mine', agent: 'rongon'));
     final llm = FakeLlm(settings)
       ..events = [
-        {'type': 'tool', 'phase': 'start', 'id': 'c1', 'name': 'web_search', 'detail': 'flutter'},
-        {'type': 'tool', 'phase': 'done', 'id': 'c1', 'name': 'web_search', 'ok': true},
-        {'type': 'action', 'action': 'note_save', 'id': 'n1', 'title': 'Code', 'content': 'print(1)', 'agent': 'shongket'},
-        {'type': 'action', 'action': 'memory_add', 'id': 'm9', 'text': 'Uses Flutter', 'shared': false, 'agent': 'shongket'},
+        {
+          'type': 'tool',
+          'phase': 'start',
+          'id': 'c1',
+          'name': 'web_search',
+          'detail': 'flutter',
+        },
+        {
+          'type': 'tool',
+          'phase': 'done',
+          'id': 'c1',
+          'name': 'web_search',
+          'ok': true,
+        },
+        {
+          'type': 'action',
+          'action': 'note_save',
+          'id': 'n1',
+          'title': 'Code',
+          'content': 'print(1)',
+          'agent': 'shongket',
+        },
+        {
+          'type': 'action',
+          'action': 'memory_add',
+          'id': 'm9',
+          'text': 'Uses Flutter',
+          'shared': false,
+          'agent': 'shongket',
+        },
       ];
     final chat = ChatController(
       store: store,
@@ -62,7 +90,10 @@ void main() {
     final ctx = llm.askedContext.single!;
     final mem = (ctx['memory'] as List).map((m) => (m as Map)['text']).toList();
     expect(mem, ['shared', 'mine']);
-    expect(ctx['now'], matches(RegExp(r'^\d{4}-\d\d-\d\dT\d\d:\d\d:00[+-]\d\d:\d\d')));
+    expect(
+      ctx['now'],
+      matches(RegExp(r'^\d{4}-\d\d-\d\dT\d\d:\d\d:00[+-]\d\d:\d\d')),
+    );
     final reply = chat.messages.last;
     expect(reply.tools.single.name, 'web_search');
     expect(reply.tools.single.done, isTrue);
@@ -133,7 +164,10 @@ void main() {
         }
         polls++;
         final b = jsonDecode(req.body) as Map;
-        expect((b['tasks'] as List).single, {'id': 't0123456789ab', 'token': 'tok'});
+        expect((b['tasks'] as List).single, {
+          'id': 't0123456789ab',
+          'token': 'tok',
+        });
         return http.Response(
           jsonEncode({
             'tasks': [
@@ -152,7 +186,11 @@ void main() {
         );
       }),
     );
-    final t = await ag.startTask(agent: 'onnesha', title: 'R', goal: 'Research');
+    final t = await ag.startTask(
+      agent: 'onnesha',
+      title: 'R',
+      goal: 'Research',
+    );
     expect(t.active, isTrue);
     await ag.pollTasks();
     expect(t.status, 'running');

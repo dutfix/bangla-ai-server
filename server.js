@@ -24,6 +24,7 @@ const voice = require('./voice');
 const web = require('./web');
 const agents = require('./agents');
 const { makeTasks } = require('./tasks');
+const { createAuth } = require('./auth');
 
 const env = process.env;
 const PORT = Number(env.PORT || 10000);
@@ -140,6 +141,8 @@ function seedConfig() {
     callPauseMs: numEnv('CALL_PAUSE_MS', 900),
     callHistory: numEnv('CALL_HISTORY', 10),
     callOfflineVoice: true, // use a phone voice's offline twin in calls (starts faster)
+    // Accounts: when true, chat and voice need a signed-in user.
+    requireSignIn: env.REQUIRE_SIGN_IN === 'true',
     ttsDailyChars: numEnv('TTS_DAILY_CHARS', 200000),
     updatedAt: new Date(0).toISOString(),
   };
@@ -169,7 +172,7 @@ function cleanPatch(p) {
   str('callPrompt', 4000);
   str('callModel', 200);
   str('voiceProvider', 40);
-  for (const k of ['voiceEnabled', 'callOfflineVoice']) {
+  for (const k of ['voiceEnabled', 'callOfflineVoice', 'requireSignIn']) {
     if (p[k] === undefined) continue;
     if (typeof p[k] !== 'boolean') throw bad(`${k} must be true or false.`);
     out[k] = p[k];
@@ -261,6 +264,8 @@ function publicConfig(cfg) {
     callPauseMs: cfg.callPauseMs,
     callHistory: cfg.callHistory,
     callOfflineVoice: cfg.callOfflineVoice,
+    requireSignIn: Boolean(cfg.requireSignIn),
+    accounts: auth.options(),
     ready: Boolean(cfg.baseUrl && cfg.apiKey),
     updatedAt: cfg.updatedAt,
   };
@@ -690,6 +695,35 @@ function clientIp(req) {
   return (typeof f === 'string' && f.split(',')[0].trim()) || req.socket.remoteAddress || '';
 }
 
+// User accounts (sign-up, sign-in, Google, profile). Separate from the admin.
+const auth = createAuth({
+  env,
+  secret: TOKEN_SECRET,
+  bad,
+  send,
+  readJson,
+  clientIp,
+  sendMail: async ({ to, subject, text, html }) => {
+    if (!RESEND_API_KEY) throw new Error('RESEND_API_KEY is not set');
+    const r = await fetch(RESEND_API_URL, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: MAIL_FROM, to: [to], subject, text, html }),
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!r.ok) throw new Error(`Resend answered ${r.status}: ${(await r.text().catch(() => '')).slice(0, 300)}`);
+  },
+  mailReady: () => Boolean(RESEND_API_KEY),
+  requireSignIn: () => Boolean(config && config.requireSignIn),
+});
+
+/** When the admin requires accounts, chat and voice need a signed-in user. */
+async function requireUserIfNeeded(req) {
+  if (!config.requireSignIn) return;
+  const user = await auth.userOf(req);
+  if (!user) throw Object.assign(bad(auth.MSG.signInRequired, 401), { code: 'sign_in_required' });
+}
+
 /** Validates chat messages from the app. */
 function cleanMessages(list) {
   if (!Array.isArray(list) || !list.length) throw bad('messages must be a non-empty list.');
@@ -999,6 +1033,7 @@ async function chat(req, res) {
   if (APP_KEY && req.headers['x-app-key'] !== APP_KEY) throw bad('Unknown app.', 401);
   const cfg = config;
   if (!cfg.enabled) throw Object.assign(bad(cfg.disabledMessage, 503), { code: 'disabled' });
+  await requireUserIfNeeded(req);
   const started = Date.now();
   const body = await readJson(req);
   if (body.agent !== undefined && body.agent !== null && body.agent !== '') return agentChat(req, res, body, cfg, started);
@@ -1342,6 +1377,7 @@ async function tts(req, res) {
   if (APP_KEY && req.headers['x-app-key'] !== APP_KEY) throw bad('Unknown app.', 401);
   const cfg = config;
   if (!cfg.enabled) throw Object.assign(bad(cfg.disabledMessage, 503), { code: 'disabled' });
+  await requireUserIfNeeded(req);
   if (!cfg.voiceEnabled) throw Object.assign(bad('Voice is off.', 403), { code: 'voice_off' });
   const provider = activeProvider(cfg);
   if (!provider) throw Object.assign(bad('No cloud voice is set up; use the phone voice.', 409), { code: 'no_provider' });
@@ -1459,6 +1495,7 @@ async function route(req, res) {
       store: store.kind,
       storeOk,
       adminLogin: 'email-code',
+      accounts: { ready: auth.ready, store: auth.kind, google: auth.options().google },
       emailReady: Boolean(ADMIN_EMAIL && RESEND_API_KEY),
       time: new Date().toISOString(),
     });
@@ -1479,6 +1516,7 @@ async function route(req, res) {
     const tm = p.match(/^\/v1\/tasks\/(t[0-9a-f]{12})\/cancel$/);
     if (tm && m === 'POST') return cancelTaskRoute(req, res, tm[1]);
   }
+  if ((p.startsWith('/v1/') || p.startsWith('/auth/')) && (await auth.route(req, res, p, m, url))) return;
   if (p === '/v1/tts' && m === 'POST') return tts(req, res);
 
   if (p === '/admin/setup-mailer' && m === 'POST') return setupMailer(req, res);
@@ -1517,6 +1555,8 @@ async function route(req, res) {
       storeError,
       emailReady: Boolean(ADMIN_EMAIL && RESEND_API_KEY),
       ready: Boolean(config.baseUrl && config.apiKey),
+      users: await auth.stats(),
+      accounts: auth.options(),
     });
   }
   if (p === '/admin/defaults' && m === 'GET') {
@@ -1547,6 +1587,12 @@ function handler(req, res) {
   });
 }
 
+/** Accounts live in the same Postgres database as the config, else memory. */
+async function initAccounts() {
+  const pool = store && store.kind === 'postgres' ? store.pool : null;
+  await auth.init(pool, `${CONFIG_TABLE}_acct`);
+}
+
 async function start({ port = PORT } = {}) {
   store = makeStore();
   // Listen first so Render's health check passes while the database wakes.
@@ -1556,12 +1602,14 @@ async function start({ port = PORT } = {}) {
   await new Promise((r) => server.listen(port, '0.0.0.0', r));
   await loadConfig();
   await loadUsage();
+  await initAccounts();
   // Retry the database in the background if it was asleep or unreachable.
   if (!storeOk) {
     const retry = setInterval(async () => {
       if (storeOk) return clearInterval(retry);
       await loadConfig();
       await loadUsage();
+      if (!auth.ready) await initAccounts();
     }, 15000);
     retry.unref();
   }
@@ -1598,6 +1646,7 @@ if (require.main === module) {
 
 module.exports = {
   start,
+  auth,
   saveUsage,
   cleanPatch,
   publicConfig,

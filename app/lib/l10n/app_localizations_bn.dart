@@ -638,4 +638,282 @@ class AppLocalizationsBn extends AppLocalizations {
 
   @override
   String get modelFast => 'দ্রুত';
+
+  @override
+  String get signIn => 'সাইন ইন';
+
+  @override
+  String get signUp => 'অ্যাকাউন্ট খুলুন';
+
+  @override
+  String get authWelcome => 'স্বাগতম';
+
+  @override
+  String get authWelcomeSub => 'আপনার বাংলা এআই অ্যাকাউন্টে সাইন ইন করুন।';
+
+  @override
+  String get authSignUpTitle => 'নতুন অ্যাকাউন্ট';
+
+  @override
+  String get authSignUpSub => 'এক মিনিটেই অ্যাকাউন্ট খুলে ফেলুন।';
+
+  @override
+  String get continueWithGoogle => 'Google দিয়ে চালিয়ে যান';
+
+  @override
+  String get orWithEmail => 'অথবা ইমেইল দিয়ে';
+
+  @override
+  String get fieldName => 'আপনার নাম';
+
+  @override
+  String get fieldEmail => 'ইমেইল';
+
+  @override
+  String get fieldPassword => 'পাসওয়ার্ড';
+
+  @override
+  String get fieldNewPassword => 'নতুন পাসওয়ার্ড';
+
+  @override
+  String get fieldCurrentPassword => 'বর্তমান পাসওয়ার্ড';
+
+  @override
+  String get passwordHint => 'অন্তত ৮ অক্ষর';
+
+  @override
+  String get showPassword => 'পাসওয়ার্ড দেখান';
+
+  @override
+  String get hidePassword => 'পাসওয়ার্ড লুকান';
+
+  @override
+  String get forgotPassword => 'পাসওয়ার্ড ভুলে গেছেন?';
+
+  @override
+  String get haveAccount => 'আগেই অ্যাকাউন্ট আছে?';
+
+  @override
+  String get noAccount => 'অ্যাকাউন্ট নেই?';
+
+  @override
+  String get notNow => 'পরে করব';
+
+  @override
+  String get errEmail => 'সঠিক ইমেইল ঠিকানা লিখুন';
+
+  @override
+  String get errPassword => 'অন্তত ৮ অক্ষরের পাসওয়ার্ড দিন';
+
+  @override
+  String get errName => 'আপনার নাম লিখুন';
+
+  @override
+  String get errWrongLogin => 'ইমেইল বা পাসওয়ার্ড ঠিক নয়।';
+
+  @override
+  String get errEmailTaken => 'এই ইমেইলে আগেই অ্যাকাউন্ট আছে। সাইন ইন করুন।';
+
+  @override
+  String get errUseGoogle =>
+      'এই ইমেইল Google দিয়ে সাইন ইন করে। \"Google দিয়ে চালিয়ে যান\" চাপুন।';
+
+  @override
+  String get errNetwork => 'ইন্টারনেট সংযোগ দেখে আবার চেষ্টা করুন।';
+
+  @override
+  String get errTimeout => 'সার্ভার সাড়া দিতে দেরি করছে। আবার চেষ্টা করুন।';
+
+  @override
+  String get errAccountsDown =>
+      'অ্যাকাউন্ট এখন পাওয়া যাচ্ছে না। একটু পরে চেষ্টা করুন।';
+
+  @override
+  String get errGeneric => 'কিছু একটা ভুল হয়েছে। আবার চেষ্টা করুন।';
+
+  @override
+  String get errWrongCode => 'কোডটি ঠিক নয় বা মেয়াদ শেষ হয়ে গেছে।';
+
+  @override
+  String get errCodeDigits => '৬ সংখ্যার কোডটি দিন';
+
+  @override
+  String get errTooManyTries => 'অনেকবার ভুল হয়েছে। নতুন কোড নিন।';
+
+  @override
+  String get errWrongCurrent => 'বর্তমান পাসওয়ার্ডটি ঠিক নয়।';
+
+  @override
+  String get errImage => 'এই ছবিটি ব্যবহার করা গেল না। অন্য একটি বেছে নিন।';
+
+  @override
+  String get googleCancelled => 'Google সাইন-ইন বাতিল হয়েছে।';
+
+  @override
+  String get googleFailed => 'Google দিয়ে সাইন ইন হয়নি। আবার চেষ্টা করুন।';
+
+  @override
+  String get googleOff =>
+      'Google সাইন-ইন এখনও চালু হয়নি। ইমেইল দিয়ে চালিয়ে যান।';
+
+  @override
+  String get googleSigningIn => 'Google দিয়ে সাইন ইন হচ্ছে...';
+
+  @override
+  String get resetTitle => 'পাসওয়ার্ড রিসেট';
+
+  @override
+  String get resetSub => 'আপনার ইমেইল দিন। আমরা একটি ৬ সংখ্যার কোড পাঠাব।';
+
+  @override
+  String get sendCode => 'কোড পাঠান';
+
+  @override
+  String get codeLabel => '৬ সংখ্যার কোড';
+
+  @override
+  String get setNewPassword => 'নতুন পাসওয়ার্ড সেট করুন';
+
+  @override
+  String get resendCode => 'আবার কোড পাঠান';
+
+  @override
+  String get codeResent => 'নতুন কোড পাঠানো হয়েছে।';
+
+  @override
+  String get passwordChanged => 'পাসওয়ার্ড বদলানো হয়েছে।';
+
+  @override
+  String get verifyTitle => 'ইমেইল যাচাই';
+
+  @override
+  String get verifyNotSent =>
+      'এখন কোড পাঠানো যায়নি। একটু পরে \"আবার কোড পাঠান\" চাপুন।';
+
+  @override
+  String get verifyButton => 'যাচাই করুন';
+
+  @override
+  String get emailVerified => 'ইমেইল যাচাই হয়েছে';
+
+  @override
+  String get emailNotVerified => 'ইমেইল এখনও যাচাই হয়নি';
+
+  @override
+  String get verifyNow => 'এখন যাচাই করুন';
+
+  @override
+  String get checkSpam => 'ইমেইল না পেলে স্প্যাম ফোল্ডার দেখুন।';
+
+  @override
+  String get profile => 'প্রোফাইল';
+
+  @override
+  String get profileSub => 'আপনার নাম, ছবি ও অ্যাকাউন্ট';
+
+  @override
+  String get changePhoto => 'ছবি বদলান';
+
+  @override
+  String get addPhoto => 'ছবি যোগ করুন';
+
+  @override
+  String get removePhoto => 'ছবি সরান';
+
+  @override
+  String get choosePhoto => 'গ্যালারি থেকে বেছে নিন';
+
+  @override
+  String get takePhoto => 'ক্যামেরা দিয়ে তুলুন';
+
+  @override
+  String get photoUpdated => 'ছবি আপডেট হয়েছে';
+
+  @override
+  String get photoRemoved => 'ছবি সরানো হয়েছে';
+
+  @override
+  String get nameSaved => 'নাম সেভ হয়েছে';
+
+  @override
+  String get accountSection => 'অ্যাকাউন্ট';
+
+  @override
+  String get signInMethod => 'সাইন-ইন পদ্ধতি';
+
+  @override
+  String get methodGoogle => 'Google';
+
+  @override
+  String get methodEmail => 'ইমেইল ও পাসওয়ার্ড';
+
+  @override
+  String get methodBoth => 'Google এবং ইমেইল ও পাসওয়ার্ড';
+
+  @override
+  String get changePassword => 'পাসওয়ার্ড বদলান';
+
+  @override
+  String get setPassword => 'পাসওয়ার্ড সেট করুন';
+
+  @override
+  String get setPasswordSub => 'Google ছাড়াও ইমেইল দিয়ে সাইন ইন করতে';
+
+  @override
+  String get otherDevicesSignedOut => 'অন্য ডিভাইসগুলো থেকে সাইন আউট হয়েছে।';
+
+  @override
+  String get signOut => 'সাইন আউট';
+
+  @override
+  String get signOutConfirm => 'সাইন আউট করবেন?';
+
+  @override
+  String get signOutBody => 'এই ডিভাইসের চ্যাটগুলো এখানেই থেকে যাবে।';
+
+  @override
+  String get signedOut => 'সাইন আউট হয়েছে';
+
+  @override
+  String get signInToChat => 'চ্যাট করতে সাইন ইন করুন।';
+
+  @override
+  String get signInRequiredSub =>
+      'চ্যাট করতে একটি অ্যাকাউন্ট লাগবে। সাইন ইন করুন বা নতুন অ্যাকাউন্ট খুলুন।';
+
+  @override
+  String get sidebarSignIn => 'সাইন ইন করুন';
+
+  @override
+  String get sidebarSignInSub => 'অথবা নতুন অ্যাকাউন্ট খুলুন';
+
+  @override
+  String errTooSoon(String seconds) {
+    return '$seconds সেকেন্ড পরে আবার চেষ্টা করুন।';
+  }
+
+  @override
+  String resendIn(String seconds) {
+    return '$seconds সেকেন্ড পরে আবার পাঠাতে পারবেন';
+  }
+
+  @override
+  String codeSentTo(String email) {
+    return '$email-এ একটি ৬ সংখ্যার কোড পাঠানো হয়েছে।';
+  }
+
+  @override
+  String resetCodeSent(String email) {
+    return '$email-এ অ্যাকাউন্ট থাকলে সেখানে একটি কোড পাঠানো হয়েছে।';
+  }
+
+  @override
+  String welcomeName(String name) {
+    return 'স্বাগতম, $name!';
+  }
+
+  @override
+  String triesLeft(String count) {
+    return 'কোডটি ঠিক নয়। আর $count বার চেষ্টা করতে পারবেন।';
+  }
 }

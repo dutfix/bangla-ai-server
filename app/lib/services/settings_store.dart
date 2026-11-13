@@ -28,6 +28,8 @@ class RemoteConfig {
     this.callPauseMs = 900,
     this.callHistory = 10,
     this.callOfflineVoice = true,
+    this.requireSignIn = false,
+    this.googleSignIn = false,
     this.ready = true,
     this.updatedAt = '',
   });
@@ -60,6 +62,12 @@ class RemoteConfig {
   /// In calls, use the offline twin of a network phone voice (starts faster).
   final bool callOfflineVoice;
 
+  /// Chat and voice need a signed-in account (set by the admin).
+  final bool requireSignIn;
+
+  /// The server has Google sign-in set up.
+  final bool googleSignIn;
+
   /// The server has an OmniRoute address and key.
   final bool ready;
   final String updatedAt;
@@ -89,6 +97,10 @@ class RemoteConfig {
       callPauseMs: (dbl(j['callPauseMs'], 900).round()).clamp(400, 3000),
       callHistory: (dbl(j['callHistory'], 10).round()).clamp(2, 40),
       callOfflineVoice: j['callOfflineVoice'] != false,
+      requireSignIn: j['requireSignIn'] == true,
+      googleSignIn: j['accounts'] is Map
+          ? (j['accounts'] as Map)['google'] == true
+          : j['googleSignIn'] == true,
       ready: j['ready'] != false,
       updatedAt: '${j['updatedAt'] ?? ''}',
     );
@@ -108,6 +120,8 @@ class RemoteConfig {
     'callPauseMs': callPauseMs,
     'callHistory': callHistory,
     'callOfflineVoice': callOfflineVoice,
+    'requireSignIn': requireSignIn,
+    'googleSignIn': googleSignIn,
     'ready': ready,
     'updatedAt': updatedAt,
   };
@@ -127,6 +141,8 @@ class RemoteConfig {
         callPauseMs: callPauseMs,
         callHistory: callHistory,
         callOfflineVoice: callOfflineVoice,
+        requireSignIn: requireSignIn,
+        googleSignIn: googleSignIn,
         ready: ready,
         updatedAt: updatedAt,
       );

@@ -97,13 +97,13 @@ class FakeCall extends CallController {
 }
 
 /// [voice]: the admin has voice on (call button, read aloud) or off.
-Future<AppServices> rig({bool voice = true}) async {
+Future<AppServices> rig({bool voice = true, String extraConfig = ''}) async {
   SharedPreferences.setMockInitialValues({'voiceSetupPrompted': true});
   final settings = SettingsStore(
     clientFactory: () => MockClient(
       (_) async => http.Response(
         '{"enabled":true,"models":["auto","auto/fast"],'
-        '"defaultModel":"auto","ready":true,'
+        '"defaultModel":"auto","ready":true,$extraConfig'
         '"voiceEnabled":$voice,"voiceMode":"${voice ? 'device' : 'off'}"}',
         200,
       ),

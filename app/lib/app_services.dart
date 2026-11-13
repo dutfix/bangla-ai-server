@@ -33,9 +33,9 @@ class AppServices {
 
   static Future<AppServices> create() async {
     final settings = SettingsStore();
-    await settings.load();
     final chats = ChatStore();
-    await chats.load();
+    // Both read from disk; neither needs the other.
+    await Future.wait([settings.load(), chats.load()]);
     final speaker = Speaker();
     final listener = SpeechListener();
     final chat = ChatController(store: chats, settings: settings);

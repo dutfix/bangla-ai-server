@@ -107,7 +107,7 @@ class _VoiceModeScreenState extends State<VoiceModeScreen> {
                             sv.speaker.voices,
                             l,
                           ).split(' · ').first,
-                          maxLines: 1,
+                          maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: t.bodyMedium?.copyWith(
                             color: s.onSurfaceVariant,
@@ -121,56 +121,111 @@ class _VoiceModeScreenState extends State<VoiceModeScreen> {
                       ),
                       Expanded(
                         child: LayoutBuilder(
-                          builder: (context, box) => SingleChildScrollView(
-                            child: ConstrainedBox(
-                              constraints: BoxConstraints(
-                                minHeight: box.maxHeight,
+                          builder: (context, box) {
+                            final orbPart = ActionOrb(
+                              state: orb,
+                              clock: _clock(call.elapsed),
+                              hint: hint,
+                              semanticLabel: status,
+                              onTap: _onOrbTap,
+                            );
+                            final info = <Widget>[
+                              Text(
+                                status,
+                                style: t.titleLarge,
+                                textAlign: TextAlign.center,
                               ),
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
+                              const SizedBox(height: Space.sm),
+                              AnimatedOpacity(
+                                duration: Motion.fade,
+                                opacity:
+                                    call.state == CallState.listening ||
+                                        call.state == CallState.speaking
+                                    ? 1
+                                    : 0.25,
+                                // Mic levels arrive many times a second:
+                                // only the waveform listens to them.
+                                child: ValueListenableBuilder<double>(
+                                  valueListenable: call.levels,
+                                  builder: (context, level, _) => Waveform(
+                                    level: call.state == CallState.listening
+                                        ? level
+                                        : 0,
+                                    synthetic: call.state == CallState.speaking,
+                                    color: call.state == CallState.listening
+                                        ? Accent.red
+                                        : s.primary,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: Space.gutter),
+                              if (call.error != null)
+                                _errorCard(context, call.error!),
+                              if (_captions) _captionCard(context),
+                              const SizedBox(height: Space.gutter),
+                            ];
+                            // Short and wide (a phone on its side, split
+                            // screen): orb on the left, words on the right.
+                            final sideBySide =
+                                box.maxWidth > box.maxHeight &&
+                                box.maxHeight < 480 &&
+                                box.maxWidth >= 560;
+                            if (sideBySide) {
+                              return Row(
                                 children: [
-                                  const SizedBox(height: Space.gutter),
-                                  ActionOrb(
-                                    state: orb,
-                                    clock: _clock(call.elapsed),
-                                    hint: hint,
-                                    semanticLabel: status,
-                                    onTap: _onOrbTap,
-                                  ),
-                                  const SizedBox(height: Space.s18),
-                                  Text(
-                                    status,
-                                    style: t.titleLarge,
-                                    textAlign: TextAlign.center,
-                                  ),
-                                  const SizedBox(height: Space.sm),
-                                  AnimatedOpacity(
-                                    duration: Motion.fade,
-                                    opacity:
-                                        call.state == CallState.listening ||
-                                            call.state == CallState.speaking
-                                        ? 1
-                                        : 0.25,
-                                    child: Waveform(
-                                      level: call.state == CallState.listening
-                                          ? call.level
-                                          : 0,
-                                      synthetic:
-                                          call.state == CallState.speaking,
-                                      color: call.state == CallState.listening
-                                          ? Accent.red
-                                          : s.primary,
+                                  Expanded(
+                                    child: Center(
+                                      child: FittedBox(
+                                        fit: BoxFit.scaleDown,
+                                        child: orbPart,
+                                      ),
                                     ),
                                   ),
-                                  const SizedBox(height: Space.gutter),
-                                  if (call.error != null)
-                                    _errorCard(context, call.error!),
-                                  if (_captions) _captionCard(context),
-                                  const SizedBox(height: Space.gutter),
+                                  Expanded(
+                                    child: SingleChildScrollView(
+                                      padding: const EdgeInsets.only(
+                                        right: Space.gutter,
+                                      ),
+                                      child: ConstrainedBox(
+                                        constraints: BoxConstraints(
+                                          minHeight: box.maxHeight,
+                                        ),
+                                        child: Column(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
+                                          children: info,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
                                 ],
+                              );
+                            }
+                            return SingleChildScrollView(
+                              child: ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  minHeight: box.maxHeight,
+                                ),
+                                child: Center(
+                                  child: ConstrainedBox(
+                                    constraints: const BoxConstraints(
+                                      maxWidth: Layout.maxWidthPage,
+                                    ),
+                                    child: Column(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        const SizedBox(height: Space.gutter),
+                                        orbPart,
+                                        const SizedBox(height: Space.s18),
+                                        ...info,
+                                      ],
+                                    ),
+                                  ),
+                                ),
                               ),
-                            ),
-                          ),
+                            );
+                          },
                         ),
                       ),
                       Padding(
@@ -179,33 +234,39 @@ class _VoiceModeScreenState extends State<VoiceModeScreen> {
                           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
-                            CircleAction(
-                              icon: HeroIcons.handRaised,
-                              label: l.interrupt,
-                              accent: Accent.amber,
-                              onTap: canInterrupt ? call.interrupt : null,
+                            Expanded(
+                              child: CircleAction(
+                                icon: HeroIcons.handRaised,
+                                label: l.interrupt,
+                                accent: Accent.amber,
+                                onTap: canInterrupt ? call.interrupt : null,
+                              ),
                             ),
-                            ended
-                                ? CircleAction(
-                                    icon: HeroIcons.phone,
-                                    label: l.callAgain,
-                                    accent: Accent.teal,
-                                    big: true,
-                                    onTap: call.start,
-                                  )
-                                : CircleAction(
-                                    icon: HeroIcons.phoneXMark,
-                                    label: l.hangUp,
-                                    accent: Accent.red,
-                                    big: true,
-                                    onTap: _hangUp,
-                                  ),
-                            CircleAction(
-                              icon: HeroIcons.chatBubbleLeftRight,
-                              label: _captions ? l.hideText : l.showText,
-                              accent: Accent.green,
-                              onTap: () =>
-                                  setState(() => _captions = !_captions),
+                            Expanded(
+                              child: ended
+                                  ? CircleAction(
+                                      icon: HeroIcons.phone,
+                                      label: l.callAgain,
+                                      accent: Accent.teal,
+                                      big: true,
+                                      onTap: call.start,
+                                    )
+                                  : CircleAction(
+                                      icon: HeroIcons.phoneXMark,
+                                      label: l.hangUp,
+                                      accent: Accent.red,
+                                      big: true,
+                                      onTap: _hangUp,
+                                    ),
+                            ),
+                            Expanded(
+                              child: CircleAction(
+                                icon: HeroIcons.chatBubbleLeftRight,
+                                label: _captions ? l.hideText : l.showText,
+                                accent: Accent.green,
+                                onTap: () =>
+                                    setState(() => _captions = !_captions),
+                              ),
                             ),
                           ],
                         ),

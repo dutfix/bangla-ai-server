@@ -34,8 +34,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   final _input = TextEditingController();
   final _focus = FocusNode();
   final _scroll = ScrollController();
-  bool _showJump = false;
-  bool _scrolled = false;
+  // Scroll state lives in notifiers so scrolling rebuilds only the jump
+  // button and the divider, never the whole screen.
+  final _showJump = ValueNotifier(false);
+  final _scrolled = ValueNotifier(false);
 
   AppServices get sv => widget.services;
 
@@ -52,12 +54,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       final scrolled =
           _scroll.hasClients &&
           _scroll.position.maxScrollExtent - _scroll.offset > 1;
-      if (jump != _showJump || scrolled != _scrolled) {
-        setState(() {
-          _showJump = jump;
-          _scrolled = scrolled;
-        });
-      }
+      _showJump.value = jump;
+      _scrolled.value = scrolled;
     });
   }
 
@@ -74,10 +72,20 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _input.dispose();
     _focus.dispose();
     _scroll.dispose();
+    _showJump.dispose();
+    _scrolled.dispose();
     super.dispose();
   }
 
-  bool get _wide => MediaQuery.sizeOf(context).width >= Layout.railBreakpoint;
+  /// The chat history stays open beside the chat on tablets and unfolded
+  /// foldables. A phone on its side is wide but short, so it keeps the
+  /// drawer and gives the chat the whole width.
+  bool get _wide {
+    final size = MediaQuery.sizeOf(context);
+    return size.width >= Layout.railBreakpoint &&
+        (size.height >= Layout.railMinHeight ||
+            size.width >= Layout.railAlwaysWidth);
+  }
 
   void _closeDrawer() {
     if (_scaffold.currentState?.isDrawerOpen ?? false) {
@@ -266,103 +274,149 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Widget _chatBody(BuildContext context, bool wide) {
-    final s = Theme.of(context).colorScheme;
     return ListenableBuilder(
       listenable: Listenable.merge([sv.chat, sv.settings, sv.readAloud]),
       builder: (context, _) {
-        final chat = sv.chat;
-        final empty = chat.messages.isEmpty;
-        return Column(
-          children: [
-            SafeArea(
-              bottom: false,
-              left: !wide,
-              child: _TopBar(
-                wide: wide,
-                model: hasModelChoice(sv.settings)
-                    ? modelLabel(sv.settings.model, context.l10n)
-                    : null,
-                title: chat.current?.title,
-                onMenu: () => _scaffold.currentState?.openDrawer(),
-                onModel: hasModelChoice(sv.settings)
-                    ? () => showModelSheet(context, sv.settings)
-                    : null,
-                onNewChat: empty ? null : _newChat,
-              ),
+        return LayoutBuilder(
+          builder: (context, box) => _chatColumn(context, wide, box.maxHeight),
+        );
+      },
+    );
+  }
+
+  Widget _chatColumn(BuildContext context, bool wide, double height) {
+    final s = Theme.of(context).colorScheme;
+    final chat = sv.chat;
+    final empty = chat.messages.isEmpty;
+    // [height] is what the Scaffold leaves the chat, keyboard already
+    // taken off; the system bars come off here.
+    final mq = MediaQuery.of(context);
+    final room = height - mq.padding.vertical;
+    final cramped = room < 460;
+    Widget chrome(Widget child) => cramped
+        ? MediaQuery(
+            data: mq.copyWith(
+              textScaler: mq.textScaler.clamp(maxScaleFactor: 1.3),
             ),
-            AnimatedOpacity(
-              opacity: _scrolled && !empty ? 1 : 0,
-              duration: const Duration(milliseconds: 120),
-              child: Divider(color: s.outlineVariant),
+            child: child,
+          )
+        : child;
+    return Column(
+      children: [
+        chrome(
+          SafeArea(
+            bottom: false,
+            left: !wide,
+            child: _TopBar(
+              wide: wide,
+              model: hasModelChoice(sv.settings)
+                  ? modelLabel(sv.settings.model, context.l10n)
+                  : null,
+              title: chat.current?.title,
+              onMenu: () => _scaffold.currentState?.openDrawer(),
+              onModel: hasModelChoice(sv.settings)
+                  ? () => showModelSheet(context, sv.settings)
+                  : null,
+              onNewChat: empty ? null : _newChat,
             ),
-            Expanded(
-              child: empty
-                  ? _Welcome(
-                      onVoiceCall: _voiceCall,
-                      onSuggestion: (text) {
-                        _input.text = text;
-                        _input.selection = TextSelection.collapsed(
-                          offset: text.length,
-                        );
-                        _focus.requestFocus();
-                      },
-                    )
-                  : Stack(
-                      children: [
-                        _messageList(context),
-                        if (_showJump)
-                          Positioned(
-                            bottom: 12,
-                            left: 0,
-                            right: 0,
-                            child: Center(
-                              child: Material(
-                                color: s.surfaceContainer,
-                                shape: CircleBorder(
-                                  side: BorderSide(color: s.outlineVariant),
-                                ),
-                                child: IconButton(
-                                  tooltip: context.l10n.jumpToLatest,
-                                  onPressed: _jumpToEnd,
-                                  icon: const HeroIcon(HeroIcons.arrowDown),
-                                ),
-                              ),
+          ),
+        ),
+        ValueListenableBuilder(
+          valueListenable: _scrolled,
+          builder: (context, scrolled, child) => AnimatedOpacity(
+            opacity: scrolled && !empty ? 1 : 0,
+            duration: const Duration(milliseconds: 120),
+            child: child,
+          ),
+          child: Divider(color: s.outlineVariant),
+        ),
+        Expanded(
+          child: empty
+              ? _Welcome(
+                  onVoiceCall: _voiceCall,
+                  onSuggestion: (text) {
+                    _input.text = text;
+                    _input.selection = TextSelection.collapsed(
+                      offset: text.length,
+                    );
+                    _focus.requestFocus();
+                  },
+                )
+              : Stack(
+                  children: [
+                    _messageList(context),
+                    ValueListenableBuilder(
+                      valueListenable: _showJump,
+                      builder: (context, show, child) =>
+                          show ? child! : const SizedBox.shrink(),
+                      child: Positioned(
+                        bottom: 12,
+                        left: 0,
+                        right: 0,
+                        child: Center(
+                          child: Material(
+                            color: s.surfaceContainer,
+                            shape: CircleBorder(
+                              side: BorderSide(color: s.outlineVariant),
+                            ),
+                            child: IconButton(
+                              tooltip: context.l10n.jumpToLatest,
+                              onPressed: _jumpToEnd,
+                              icon: const HeroIcon(HeroIcons.arrowDown),
                             ),
                           ),
-                      ],
+                        ),
+                      ),
                     ),
-            ),
-            ?_serverBanner(context),
-            if (chat.notice != null)
-              _Notice(
-                text: chat.notice!,
-                onSettings: () => _push(SettingsScreen(services: sv)),
-              ),
-            SafeArea(
-              top: false,
-              left: !wide,
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(
-                    maxWidth: Layout.maxWidthPage,
+                  ],
+                ),
+        ),
+        // Banners and the message box never take more than 60% of the
+        // height; past that they scroll, so the column cannot overflow.
+        ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: room * 0.6),
+          child: SingleChildScrollView(
+            reverse: true,
+            physics: const ClampingScrollPhysics(),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ?_serverBanner(context),
+                if (chat.notice != null)
+                  _Notice(
+                    text: chat.notice!,
+                    onSettings: () => _push(SettingsScreen(services: sv)),
                   ),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
-                    child: Composer(
-                      controller: _input,
-                      focusNode: _focus,
-                      generating: chat.generating,
-                      onSend: _send,
-                      onStop: chat.stop,
-                      onVoiceCall: _voiceCall,
+                chrome(
+                  SafeArea(
+                    top: false,
+                    left: !wide,
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(
+                          maxWidth: Layout.maxWidthPage,
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
+                          child: Composer(
+                            controller: _input,
+                            focusNode: _focus,
+                            generating: chat.generating,
+                            onSend: _send,
+                            onStop: chat.stop,
+                            onVoiceCall: _voiceCall,
+                            maxLines: room < 300 ? 2 : (cramped ? 3 : 6),
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 ),
-              ),
+              ],
             ),
-          ],
-        );
-      },
+          ),
+        ),
+      ],
     );
   }
 
@@ -382,22 +436,30 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       itemCount: list.length,
       itemBuilder: (context, i) {
         final m = list[list.length - 1 - i];
+        Widget tile() => MessageTile(
+          key: ValueKey(m.id),
+          message: m,
+          streaming:
+              identical(chat.streaming, m) ||
+              (sv.call.inCall && identical(sv.call.lastReply, m)),
+          isLastReply: identical(m, lastReply) && m == list.last,
+          reading: sv.readAloud.isReading(m.id),
+          busy: busy,
+          onRegenerate: () => chat.regenerate(m),
+          onEdit: (text) => chat.editAndResend(m, text),
+          onSpeak: () => _speak(m),
+        );
         return Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: Layout.maxWidthPage),
-            child: MessageTile(
-              key: ValueKey(m.id),
-              message: m,
-              streaming:
-                  identical(chat.streaming, m) ||
-                  (sv.call.inCall && identical(sv.call.lastReply, m)),
-              isLastReply: identical(m, lastReply) && m == list.last,
-              reading: sv.readAloud.isReading(m.id),
-              busy: busy,
-              onRegenerate: () => chat.regenerate(m),
-              onEdit: (text) => chat.editAndResend(m, text),
-              onSpeak: () => _speak(m),
-            ),
+            // Only the newest message can still be growing: it alone
+            // rebuilds as a reply streams in.
+            child: i == 0
+                ? ListenableBuilder(
+                    listenable: chat.replyTicks,
+                    builder: (context, _) => tile(),
+                  )
+                : tile(),
           ),
         );
       },
@@ -429,8 +491,10 @@ class _TopBar extends StatelessWidget {
     final s = Theme.of(context).colorScheme;
     final t = Theme.of(context).textTheme;
     final subtitle = (title != null && title!.isNotEmpty) ? title : model;
-    return SizedBox(
-      height: 64,
+    // At least 64dp, and taller when the system font is large. The title is
+    // a display face, so its growth is capped to keep the bar compact.
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 64),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 4),
         child: Row(
@@ -466,12 +530,18 @@ class _TopBar extends StatelessWidget {
                           Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
+                              // Shrinks to fit rather than cutting the
+                              // app's name on narrow screens.
                               Flexible(
-                                child: Text(
-                                  context.l10n.appName.toUpperCase(),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: t.headlineLarge,
+                                child: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: Text(
+                                    context.l10n.appName.toUpperCase(),
+                                    maxLines: 1,
+                                    style: t.headlineLarge,
+                                    textScaler: MediaQuery.textScalerOf(context)
+                                        .clamp(maxScaleFactor: 1.3),
+                                  ),
                                 ),
                               ),
                               const Padding(

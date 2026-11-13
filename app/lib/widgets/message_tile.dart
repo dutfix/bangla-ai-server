@@ -243,10 +243,7 @@ class _MessageTileState extends State<MessageTile> {
               ),
             )
           else if (m.text.isNotEmpty)
-            MarkdownView(
-              data: widget.streaming ? '${m.text} \u25CF' : m.text,
-              selectable: done,
-            ),
+            MarkdownView(data: m.text, selectable: done, live: !done),
           if (m.error != null) ...[
             const SizedBox(height: Space.sm),
             _errorBox(context),

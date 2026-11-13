@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
@@ -26,6 +27,10 @@ class ChatStore extends ChangeNotifier {
   File? _file;
   Timer? _saveTimer;
 
+  /// Above this many characters, saved chats are read and written in a
+  /// background isolate.
+  static const _bigFile = 200 * 1024;
+
   /// Newest first.
   List<Conversation> get conversations {
     final list = _all.where((c) => c.messages.isNotEmpty).toList()
@@ -46,7 +51,13 @@ class ChatStore extends ChangeNotifier {
     _file = File('${dir.path}/chats.json');
     try {
       if (await _file!.exists()) {
-        final data = jsonDecode(await _file!.readAsString());
+        final text = await _file!.readAsString();
+        _lastSize = text.length;
+        // A long history is decoded off the UI thread, so start-up does not
+        // freeze while it loads.
+        final data = text.length > _bigFile
+            ? await Isolate.run(() => jsonDecode(text))
+            : jsonDecode(text);
         if (data is Map && data['conversations'] is List) {
           _all
             ..clear()
@@ -137,6 +148,7 @@ class ChatStore extends ChangeNotifier {
   }
 
   Future<void>? _writing;
+  int _lastSize = 0;
 
   /// Writes to disk now (atomically: temp file, then rename).
   Future<void> flush() async {
@@ -146,13 +158,17 @@ class ChatStore extends ChangeNotifier {
     while (_writing != null) {
       await _writing;
     }
-    final json = jsonEncode({
+    final data = {
       'version': 1,
       'conversations': _all
           .where((c) => c.messages.isNotEmpty)
           .map((c) => c.toJson())
           .toList(),
-    });
+    };
+    final json = _lastSize > _bigFile
+        ? await Isolate.run(() => jsonEncode(data))
+        : jsonEncode(data);
+    _lastSize = json.length;
     final done = Completer<void>();
     _writing = done.future;
     try {

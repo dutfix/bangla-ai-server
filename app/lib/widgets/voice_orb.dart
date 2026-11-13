@@ -67,151 +67,164 @@ class _ActionOrbState extends State<ActionOrb> with TickerProviderStateMixin {
     return Semantics(
       button: widget.onTap != null,
       label: widget.semanticLabel,
-      child: SizedBox.square(
-        dimension: 210,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            ScaleTransition(
-              scale: _scale,
-              child: Opacity(
-                opacity: 0.35,
+      // Each moving part is its own layer: the glow and the ring are drawn
+      // once and only moved by the GPU, and the orb's blurred shadow is not
+      // redrawn every frame.
+      child: RepaintBoundary(
+        child: SizedBox.square(
+          dimension: 210,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              ScaleTransition(
+                scale: _scale,
+                child: RepaintBoundary(
+                  // The 35% glow strength is in the colours, not an Opacity
+                  // layer, which would cost an offscreen pass every frame.
+                  child: AnimatedContainer(
+                    duration: Motion.fade,
+                    width: 200,
+                    height: 200,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: RadialGradient(
+                        colors: [
+                          _glow.withValues(alpha: 0.7 * 0.35),
+                          _glow.withValues(alpha: 0),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              RotationTransition(
+                turns: _spin,
+                child: const RepaintBoundary(
+                  child: SizedBox.square(
+                    dimension: 184,
+                    child: CustomPaint(painter: _SweepRingPainter()),
+                  ),
+                ),
+              ),
+              GestureDetector(
+                onTap: widget.onTap,
                 child: AnimatedContainer(
                   duration: Motion.fade,
-                  width: 200,
-                  height: 200,
+                  width: Sizes.actionOrb,
+                  height: Sizes.actionOrb,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    gradient: RadialGradient(
-                      colors: [
-                        _glow.withValues(alpha: 0.7),
-                        _glow.withValues(alpha: 0),
-                      ],
+                    gradient: _gradient,
+                    border: Border.all(
+                      color: Palette.white.withValues(alpha: 0.3),
+                      width: 2,
                     ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: _glow.withValues(alpha: 0.45),
+                        blurRadius: 20,
+                        spreadRadius: 1,
+                      ),
+                    ],
                   ),
-                ),
-              ),
-            ),
-            RotationTransition(
-              turns: _spin,
-              child: const SizedBox.square(
-                dimension: 184,
-                child: CustomPaint(painter: _SweepRingPainter()),
-              ),
-            ),
-            GestureDetector(
-              onTap: widget.onTap,
-              child: AnimatedContainer(
-                duration: Motion.fade,
-                width: Sizes.actionOrb,
-                height: Sizes.actionOrb,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: _gradient,
-                  border: Border.all(
-                    color: Palette.white.withValues(alpha: 0.3),
-                    width: 2,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: _glow.withValues(alpha: 0.45),
-                      blurRadius: 20,
-                      spreadRadius: 1,
-                    ),
-                  ],
-                ),
-                alignment: Alignment.center,
-                child: AnimatedSwitcher(
-                  duration: Motion.fade,
-                  child: widget.state == OrbState.idle
-                      ? ScaleTransition(
-                          key: const ValueKey('idle'),
-                          scale: _scale,
-                          child: Container(
-                            width: 62,
-                            height: 62,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: Palette.white,
-                                width: 5,
-                              ),
-                            ),
-                            alignment: Alignment.center,
-                            child: Container(
-                              width: 30,
-                              height: 30,
-                              decoration: const BoxDecoration(
-                                color: Palette.white,
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                          ),
-                        )
-                      : MediaQuery.withNoTextScaling(
-                          key: const ValueKey('clock'),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                widget.clock,
-                                maxLines: 1,
-                                style: const TextStyle(
-                                  fontFamily: Fonts.display,
-                                  fontFamilyFallback: Fonts.fallback,
-                                  fontSize: 32,
-                                  height: 1.2,
-                                  color: Palette.white,
-                                  letterSpacing: 0.3,
+                  alignment: Alignment.center,
+                  child: RepaintBoundary(
+                    child: AnimatedSwitcher(
+                      duration: Motion.fade,
+                      child: widget.state == OrbState.idle
+                          ? ScaleTransition(
+                              key: const ValueKey('idle'),
+                              scale: _scale,
+                              child: Container(
+                                width: 62,
+                                height: 62,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: Palette.white,
+                                    width: 5,
+                                  ),
+                                ),
+                                alignment: Alignment.center,
+                                child: Container(
+                                  width: 30,
+                                  height: 30,
+                                  decoration: const BoxDecoration(
+                                    color: Palette.white,
+                                    shape: BoxShape.circle,
+                                  ),
                                 ),
                               ),
-                              if (widget.hint.isNotEmpty)
-                                Padding(
-                                  padding: const EdgeInsets.only(
-                                    top: 4,
-                                    left: 18,
-                                    right: 18,
-                                  ),
-                                  // A dark pill keeps the hint readable on
-                                  // every colour the orb passes through.
-                                  child: DecoratedBox(
-                                    decoration: BoxDecoration(
-                                      color: Palette.black.withValues(
-                                        alpha: 0.28,
-                                      ),
-                                      borderRadius: BorderRadius.circular(99),
+                            )
+                          : MediaQuery.withNoTextScaling(
+                              key: const ValueKey('clock'),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    widget.clock,
+                                    maxLines: 1,
+                                    style: const TextStyle(
+                                      fontFamily: Fonts.display,
+                                      fontFamilyFallback: Fonts.fallback,
+                                      fontSize: 32,
+                                      height: 1.2,
+                                      color: Palette.white,
+                                      letterSpacing: 0.3,
                                     ),
-                                    child: Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 10,
-                                        vertical: 3,
+                                  ),
+                                  if (widget.hint.isNotEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.only(
+                                        top: 4,
+                                        left: 18,
+                                        right: 18,
                                       ),
-                                      child: Text(
-                                        widget.hint,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          fontFamily: Fonts.body,
-                                          fontFamilyFallback: Fonts.fallback,
-                                          fontSize: 12.5,
-                                          height: 1.45,
-                                          fontWeight: FontWeight.w600,
-                                          fontVariations: [
-                                            FontVariation.weight(600),
-                                          ],
-                                          color: Palette.white,
+                                      // A dark pill keeps the hint readable on
+                                      // every colour the orb passes through.
+                                      child: DecoratedBox(
+                                        decoration: BoxDecoration(
+                                          color: Palette.black.withValues(
+                                            alpha: 0.28,
+                                          ),
+                                          borderRadius: BorderRadius.circular(
+                                            99,
+                                          ),
+                                        ),
+                                        child: Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 10,
+                                            vertical: 3,
+                                          ),
+                                          child: Text(
+                                            widget.hint,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              fontFamily: Fonts.body,
+                                              fontFamilyFallback:
+                                                  Fonts.fallback,
+                                              fontSize: 12.5,
+                                              height: 1.45,
+                                              fontWeight: FontWeight.w600,
+                                              fontVariations: [
+                                                FontVariation.weight(600),
+                                              ],
+                                              color: Palette.white,
+                                            ),
+                                          ),
                                         ),
                                       ),
                                     ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
+                                ],
+                              ),
+                            ),
+                    ),
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -273,23 +286,25 @@ class _WaveformState extends State<Waveform>
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: widget.height,
-      child: AnimatedBuilder(
-        animation: _c,
-        builder: (context, _) {
-          final target = widget.synthetic ? 0.65 : widget.level;
-          _smooth += (target - _smooth) * 0.18;
-          return CustomPaint(
-            size: Size(widget.bars * 7.0, widget.height),
-            painter: _WavePainter(
-              t: _c.value * 10,
-              level: _smooth,
-              color: widget.color,
-              bars: widget.bars,
-            ),
-          );
-        },
+    return RepaintBoundary(
+      child: SizedBox(
+        height: widget.height,
+        child: AnimatedBuilder(
+          animation: _c,
+          builder: (context, _) {
+            final target = widget.synthetic ? 0.65 : widget.level;
+            _smooth += (target - _smooth) * 0.18;
+            return CustomPaint(
+              size: Size(widget.bars * 7.0, widget.height),
+              painter: _WavePainter(
+                t: _c.value * 10,
+                level: _smooth,
+                color: widget.color,
+                bars: widget.bars,
+              ),
+            );
+          },
+        ),
       ),
     );
   }

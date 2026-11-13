@@ -1,15 +1,24 @@
 import 'package:flutter/widgets.dart';
+import 'package:material_ui/material_ui.dart' show GlobalMaterialLocalizations;
 
 import 'app_localizations.dart';
 
 export 'app_localizations.dart';
 
-/// The app's localization delegates. These come from package:material_ui
-/// (see tool/gen_l10n.sh): the flutter_localizations ones gen-l10n writes
-/// by default left Bangla with no Material strings, so every TextField and
-/// Drawer threw and showed as a grey box in release builds.
-const List<LocalizationsDelegate<dynamic>> appLocalizationsDelegates =
-    AppLocalizations.localizationsDelegates;
+/// The app's localization delegates: the app's own strings plus the
+/// Material, Cupertino and Widgets strings from package:material_ui, which
+/// is where this app's widgets come from.
+///
+/// Listed here on purpose, not taken from the generated
+/// `AppLocalizations.localizationsDelegates`: every `flutter build` and
+/// `flutter pub get` regenerates that file (pubspec `generate: true`) with
+/// the flutter_localizations delegates, which give material_ui widgets no
+/// Material strings. In Bangla that made the message box, the chat history
+/// drawer and the menu throw in release builds (v1.0.1).
+const List<LocalizationsDelegate<dynamic>> appLocalizationsDelegates = [
+  AppLocalizations.delegate,
+  ...GlobalMaterialLocalizations.delegates,
+];
 
 /// The app's languages. Bangla is the default; English is an option.
 abstract final class AppLanguage {

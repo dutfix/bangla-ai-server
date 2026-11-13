@@ -43,6 +43,10 @@ class CallController extends ChangeNotifier {
   /// Microphone loudness (0..1) while listening.
   double level = 0;
 
+  /// The mic level as it changes, many times a second. Separate from
+  /// [notifyListeners] so the voice screen does not rebuild for each level.
+  final levels = ValueNotifier<double>(0);
+
   bool _active = false;
   int _turnId = 0;
   Timer? _timer;
@@ -64,7 +68,7 @@ class CallController extends ChangeNotifier {
         _setError(L10n.current.voiceError('$e'), keepGoing: true);
     listener.onLevel = (v) {
       level = v;
-      notifyListeners();
+      levels.value = v;
     };
     _set(CallState.connecting);
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -182,6 +186,7 @@ class CallController extends ChangeNotifier {
     llm.cancel();
     listener.onLevel = null;
     level = 0;
+    levels.value = 0;
     await listener.stop();
     await speaker.stop();
     _set(CallState.idle);
@@ -201,6 +206,7 @@ class CallController extends ChangeNotifier {
   @override
   void dispose() {
     _timer?.cancel();
+    levels.dispose();
     super.dispose();
   }
 }

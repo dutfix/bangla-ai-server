@@ -31,6 +31,9 @@ class _PressableState extends State<Pressable>
   );
 
   void _to(double target) {
+    // A press can end after this widget has gone (a chat scrolled away or
+    // a screen closed while the finger was still down).
+    if (!mounted) return;
     _c.animateWith(SpringSimulation(_spring, _c.value, target, _c.velocity));
   }
 
@@ -840,39 +843,60 @@ class CircleAction extends StatelessWidget {
     final t = Theme.of(context).textTheme;
     final size = big ? Sizes.circleActionBig : Sizes.circleAction;
     final enabled = onTap != null;
-    return Opacity(
-      opacity: enabled ? 1 : 0.4,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Pressable(
-            enabled: enabled,
-            child: Material(
-              color: accent.withValues(alpha: Alphas.circleActionFill),
-              shape: CircleBorder(
-                side: BorderSide(
-                  color: accent.withValues(alpha: Alphas.circleActionBorder),
-                ),
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: InkWell(
-                onTap: onTap,
-                child: SizedBox.square(
-                  dimension: size,
-                  child: Center(
-                    child: HeroIcon(
-                      icon,
-                      size: big ? Sizes.iconBig : Sizes.iconThumb,
-                      color: accent,
+    // The label is part of the button: a tap on it counts too, and screen
+    // readers hear one button with the label.
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      label: label,
+      excludeSemantics: true,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        excludeFromSemantics: true,
+        onTap: onTap,
+        child: Opacity(
+          opacity: enabled ? 1 : 0.4,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Pressable(
+                enabled: enabled,
+                child: Material(
+                  color: accent.withValues(alpha: Alphas.circleActionFill),
+                  shape: CircleBorder(
+                    side: BorderSide(
+                      color: accent.withValues(
+                        alpha: Alphas.circleActionBorder,
+                      ),
+                    ),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: InkWell(
+                    onTap: onTap,
+                    child: SizedBox.square(
+                      dimension: size,
+                      child: Center(
+                        child: HeroIcon(
+                          icon,
+                          size: big ? Sizes.iconBig : Sizes.iconThumb,
+                          color: accent,
+                        ),
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
+              const SizedBox(height: Space.s),
+              Text(
+                label,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: t.labelLarge?.copyWith(color: s.onSurfaceVariant),
+              ),
+            ],
           ),
-          const SizedBox(height: Space.s),
-          Text(label, style: t.labelLarge?.copyWith(color: s.onSurfaceVariant)),
-        ],
+        ),
       ),
     );
   }

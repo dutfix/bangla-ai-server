@@ -13,26 +13,101 @@ import 'components.dart';
 
 /// Renders an AI reply: GitHub-flavoured Markdown with code blocks that
 /// have a language label, syntax colours and a copy button.
+///
+/// While a reply streams in ([live]), the text is cut into the blocks that
+/// are already finished and the one still growing. Each finished block is
+/// its own Markdown widget whose text no longer changes, so it is parsed
+/// once; only the growing tail is parsed again as chunks arrive. Long
+/// replies stay smooth instead of re-parsing everything on every chunk.
 class MarkdownView extends StatelessWidget {
-  const MarkdownView({super.key, required this.data, this.selectable = true});
+  const MarkdownView({
+    super.key,
+    required this.data,
+    this.selectable = true,
+    this.live = false,
+  });
   final String data;
   final bool selectable;
 
+  /// The reply is still streaming: a cursor dot follows the text.
+  final bool live;
+
+  static const _cursor = ' \u25CF';
+  static const _blockSpacing = 12.0;
+  static final _sheets = Expando<MarkdownStyleSheet>('markdown sheet');
+  static final Map<String, MarkdownElementBuilder> _builders = {
+    'pre': _CodeBlockBuilder(),
+  };
+
   @override
   Widget build(BuildContext context) {
+    final sheet = _sheetFor(context);
+    if (!live) return _body(context, data, sheet, selectable);
+    final blocks = splitSettledBlocks(data);
+    if (blocks.length == 1) {
+      return _body(context, '${blocks.first}$_cursor', sheet, false);
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (var i = 0; i < blocks.length; i++) ...[
+          if (i > 0) const SizedBox(height: _blockSpacing),
+          KeyedSubtree(
+            key: ValueKey<int>(i),
+            child: _body(
+              context,
+              i == blocks.length - 1 ? '${blocks[i]}$_cursor' : blocks[i],
+              sheet,
+              false,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _body(
+    BuildContext context,
+    String text,
+    MarkdownStyleSheet sheet,
+    bool selectable,
+  ) {
+    return MarkdownBody(
+      data: text,
+      selectable: selectable,
+      styleSheet: sheet,
+      extensionSet: md.ExtensionSet.gitHubFlavored,
+      builders: _builders,
+      imageBuilder: (uri, title, alt) => _MarkdownImage(uri: uri, alt: alt),
+      onTapLink: (text, href, title) async {
+        final uri = href == null ? null : Uri.tryParse(href);
+        if (uri == null) return;
+        if (!await launchUrl(uri, mode: LaunchMode.externalApplication) &&
+            context.mounted) {
+          showSnack(context, context.l10n.couldNotOpen('$href'));
+        }
+      },
+    );
+  }
+
+  /// One style sheet per theme, made once, so rebuilds do not rebuild it.
+  static MarkdownStyleSheet _sheetFor(BuildContext context) {
     final theme = Theme.of(context);
+    return _sheets[theme] ??= _makeSheet(context, theme);
+  }
+
+  static MarkdownStyleSheet _makeSheet(BuildContext context, ThemeData theme) {
     final s = theme.colorScheme;
     final t = theme.textTheme;
+    final dark = AppColors.of(context).dark;
     final body = t.bodyLarge!.copyWith(color: s.onSurface);
-    final sheet = MarkdownStyleSheet(
+    return MarkdownStyleSheet(
       p: body,
       pPadding: EdgeInsets.zero,
       a: body.copyWith(
-        color: AppColors.of(context).dark ? Palette.green : Palette.link,
+        color: dark ? Palette.green : Palette.link,
         decoration: TextDecoration.underline,
-        decorationColor: AppColors.of(context).dark
-            ? Palette.green
-            : Palette.link,
+        decorationColor: dark ? Palette.green : Palette.link,
       ),
       strong: const TextStyle(
         fontWeight: FontWeight.w700,
@@ -63,7 +138,7 @@ class MarkdownView extends StatelessWidget {
       ),
       listBullet: body,
       listIndent: 22,
-      blockSpacing: 12,
+      blockSpacing: _blockSpacing,
       tableHead: t.titleSmall,
       tableBody: t.bodyMedium,
       tableBorder: TableBorder.all(color: s.outlineVariant),
@@ -71,25 +146,132 @@ class MarkdownView extends StatelessWidget {
         horizontal: 10,
         vertical: 6,
       ),
+      // Intrinsic widths make wide tables scroll sideways instead of
+      // squeezing or overflowing on narrow phones.
       tableColumnWidth: const IntrinsicColumnWidth(),
       horizontalRuleDecoration: BoxDecoration(
         border: Border(top: BorderSide(color: s.outlineVariant)),
       ),
       checkbox: body.copyWith(color: s.primary),
     );
-    return MarkdownBody(
-      data: data,
-      selectable: selectable,
-      styleSheet: sheet,
-      extensionSet: md.ExtensionSet.gitHubFlavored,
-      builders: {'pre': _CodeBlockBuilder()},
-      onTapLink: (text, href, title) async {
-        final uri = href == null ? null : Uri.tryParse(href);
-        if (uri == null) return;
-        if (!await launchUrl(uri, mode: LaunchMode.externalApplication) &&
-            context.mounted) {
-          showSnack(context, context.l10n.couldNotOpen('$href'));
-        }
+  }
+}
+
+/// Splits streaming Markdown into finished top-level blocks and the tail
+/// that is still growing. A block ends at a blank line outside a code
+/// fence when the next line clearly starts a new block (not an indented
+/// line, a list item or a table row, which could continue the block above).
+/// Joining the parts with blank lines gives the same document back.
+List<String> splitSettledBlocks(String text) {
+  final lines = text.split('\n');
+  final blocks = <String>[];
+  var start = 0;
+  String? fence;
+  final listItem = RegExp(r'^\s*([-*+]|\d{1,9}[.)])(\s|$)');
+  final fenceOpen = RegExp(r'^\s{0,3}(`{3,}|~{3,})');
+  for (var i = 0; i < lines.length; i++) {
+    final line = lines[i];
+    final f = fenceOpen.firstMatch(line);
+    if (fence != null) {
+      if (f != null && f.group(1)!.startsWith(fence)) fence = null;
+      continue;
+    }
+    if (f != null) {
+      fence = f.group(1)![0] * 3;
+      continue;
+    }
+    if (line.trim().isNotEmpty) continue;
+    // A blank line: find the next line with text.
+    var j = i + 1;
+    while (j < lines.length && lines[j].trim().isEmpty) {
+      j++;
+    }
+    if (j >= lines.length) break; // Nothing after it yet: still the tail.
+    final next = lines[j];
+    final prev = lines.sublist(start, i).join('\n');
+    final continues =
+        next.startsWith(' ') ||
+        next.startsWith('\t') ||
+        listItem.hasMatch(next) ||
+        next.trimLeft().startsWith('|') ||
+        next.trimLeft().startsWith('[');
+    if (prev.trim().isNotEmpty && !continues) {
+      blocks.add(prev);
+      start = j;
+      i = j - 1;
+    }
+  }
+  final tail = lines.sublist(start).join('\n');
+  if (tail.trim().isNotEmpty || blocks.isEmpty) blocks.add(tail);
+  return blocks;
+}
+
+/// An image in a reply: fits the width, decodes at screen size, fades in,
+/// and keeps a fixed placeholder height while it loads so the chat does not
+/// jump.
+class _MarkdownImage extends StatelessWidget {
+  const _MarkdownImage({required this.uri, this.alt});
+  final Uri uri;
+  final String? alt;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = Theme.of(context).colorScheme;
+    if (!uri.isScheme('http') && !uri.isScheme('https')) {
+      return Text(alt ?? '', style: TextStyle(color: s.onSurfaceVariant));
+    }
+    return LayoutBuilder(
+      builder: (context, box) {
+        final width = box.maxWidth.isFinite ? box.maxWidth : 400.0;
+        final px = (width * MediaQuery.devicePixelRatioOf(context)).round();
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(Radii.tile),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: width, maxHeight: 420),
+            child: Image.network(
+              uri.toString(),
+              cacheWidth: px,
+              fit: BoxFit.contain,
+              semanticLabel: alt,
+              gaplessPlayback: true,
+              frameBuilder: (context, child, frame, sync) {
+                if (sync) return child;
+                return AnimatedSwitcher(
+                  duration: Motion.fade,
+                  child: frame == null
+                      ? Container(
+                          key: const ValueKey('wait'),
+                          width: width,
+                          height: 180,
+                          color: s.surfaceContainerHigh,
+                        )
+                      : child,
+                );
+              },
+              errorBuilder: (context, error, stack) => Container(
+                padding: const EdgeInsets.all(12),
+                color: s.surfaceContainerHigh,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    HeroIcon(
+                      HeroIcons.exclamationTriangle,
+                      size: 18,
+                      color: s.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        alt?.isNotEmpty == true ? alt! : uri.host,
+                        style: TextStyle(color: s.onSurfaceVariant),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
       },
     );
   }
@@ -131,6 +313,22 @@ class CodeBlock extends StatefulWidget {
 
 class _CodeBlockState extends State<CodeBlock> {
   bool _copied = false;
+
+  // Highlighting is the slow part: done once per code, language and colours,
+  // not on every rebuild.
+  List<TextSpan>? _spans;
+  String? _spansFor;
+
+  List<TextSpan> _highlighted(CodeColors colors, bool dark) {
+    final key =
+        '${widget.language}|$dark|${colors.keyword.toARGB32()}|'
+        '${colors.comment.toARGB32()}|${widget.code}';
+    if (_spans == null || _spansFor != key) {
+      _spans = highlightCode(widget.code, widget.language, colors);
+      _spansFor = key;
+    }
+    return _spans!;
+  }
 
   Future<void> _copy() async {
     await Clipboard.setData(ClipboardData(text: widget.code));
@@ -199,11 +397,7 @@ class _CodeBlockState extends State<CodeBlock> {
               child: SelectableText.rich(
                 TextSpan(
                   style: base,
-                  children: highlightCode(
-                    widget.code,
-                    widget.language,
-                    CodeColors.of(s, dark),
-                  ),
+                  children: _highlighted(CodeColors.of(s, dark), dark),
                 ),
               ),
             ),

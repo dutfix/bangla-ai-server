@@ -46,6 +46,35 @@ class ChatController extends ChangeNotifier implements CallSink {
   /// Last error that is not tied to a message (e.g. no API key).
   String? notice;
 
+  /// Ticks while the last reply grows (typed or spoken). Only the tile of
+  /// that reply listens, so the rest of the chat screen does not rebuild on
+  /// every chunk. At most one tick per [_tickEvery]; [notifyListeners] is
+  /// kept for changes to the list itself.
+  Listenable get replyTicks => _ticks;
+  final _ticks = _Ticks();
+  static const _tickEvery = Duration(milliseconds: 40);
+  Timer? _tickTimer;
+
+  void _tick() {
+    _tickTimer ??= Timer(_tickEvery, () {
+      _tickTimer = null;
+      _ticks.ping();
+    });
+  }
+
+  void _flushTicks() {
+    _tickTimer?.cancel();
+    _tickTimer = null;
+    _ticks.ping();
+  }
+
+  @override
+  void dispose() {
+    _tickTimer?.cancel();
+    _ticks.dispose();
+    super.dispose();
+  }
+
   void newChat() {
     stop();
     _current = null;
@@ -125,6 +154,7 @@ class ChatController extends ChangeNotifier implements CallSink {
     streaming = null;
     final c = _current;
     if (c != null) store.changed(c, touch: false);
+    _flushTicks();
     notifyListeners();
   }
 
@@ -146,8 +176,11 @@ class ChatController extends ChangeNotifier implements CallSink {
         ...history,
       ])) {
         if (gen != _gen) return;
+        final first = reply.text.isEmpty;
         reply.text += chunk;
-        notifyListeners();
+        // The first words replace the typing dots and show the actions
+        // area, so the list itself changes once; after that only the tile.
+        first ? notifyListeners() : _tick();
       }
       if (gen != _gen) return;
       if (reply.text.trim().isEmpty) {
@@ -159,6 +192,7 @@ class ChatController extends ChangeNotifier implements CallSink {
     }
     streaming = null;
     store.changed(c);
+    _flushTicks();
     notifyListeners();
     if (reply.error == null) unawaited(_autoTitle(c));
   }
@@ -266,7 +300,7 @@ class ChatController extends ChangeNotifier implements CallSink {
   }
 
   @override
-  void callReplyChanged(ChatMessage reply) => notifyListeners();
+  void callReplyChanged(ChatMessage reply) => _tick();
 
   @override
   void callEndReply(
@@ -286,7 +320,12 @@ class ChatController extends ChangeNotifier implements CallSink {
       }
     }
     store.changed(c);
+    _flushTicks();
     notifyListeners();
     if (error == null && !interrupted) unawaited(_autoTitle(c));
   }
+}
+
+class _Ticks extends ChangeNotifier {
+  void ping() => notifyListeners();
 }

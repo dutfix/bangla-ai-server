@@ -15,6 +15,7 @@ class Composer extends StatefulWidget {
     required this.onSend,
     required this.onStop,
     required this.onVoiceCall,
+    this.maxLines = 6,
     this.focusNode,
   });
 
@@ -23,6 +24,9 @@ class Composer extends StatefulWidget {
   final ValueChanged<String> onSend;
   final VoidCallback onStop;
   final VoidCallback onVoiceCall;
+
+  /// How tall the box may grow before it scrolls.
+  final int maxLines;
   final FocusNode? focusNode;
 
   @override
@@ -82,7 +86,7 @@ class _ComposerState extends State<Composer> {
               controller: c,
               focusNode: widget.focusNode,
               minLines: 1,
-              maxLines: 6,
+              maxLines: widget.maxLines,
               textCapitalization: TextCapitalization.sentences,
               keyboardType: TextInputType.multiline,
               style: t.bodyLarge,

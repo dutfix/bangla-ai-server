@@ -199,6 +199,12 @@ abstract final class ChatLayout {
 
 abstract final class Layout {
   static const railBreakpoint = 600.0;
+
+  /// Below this height (a phone on its side) the sidebar is a drawer...
+  static const railMinHeight = 480.0;
+
+  /// ...unless the window is at least this wide.
+  static const railAlwaysWidth = 960.0;
   static const maxWidthPage = 760.0;
   static const maxWidthGrid = 900.0;
   static const settingValueUnderTitleBelow = 340.0;

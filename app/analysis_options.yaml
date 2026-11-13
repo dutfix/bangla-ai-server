@@ -14,6 +14,9 @@ analyzer:
     - build/**
     - android/**
     - ios/**
+    # Written by gen-l10n on every build; the app does not use its
+    # delegate list (see lib/l10n/l10n.dart).
+    - lib/l10n/app_localizations*.dart
 
 linter:
   # The lint rules applied to this project can be customized in the

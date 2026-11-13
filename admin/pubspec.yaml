@@ -1,0 +1,51 @@
+name: bangla_ai_admin
+description: "Bangla AI Admin: sets the AI connection, models, system prompt and default voice for every Bangla AI user, through the Bangla AI server."
+publish_to: 'none'
+version: 1.2.0+120
+
+environment:
+  sdk: ^3.10.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  material_ui: ^1.11.0
+  path_parsing: ^1.1.0
+  http: ^1.6.0
+  shared_preferences: ^2.5.6
+  flutter_secure_storage: ^10.0.0
+  flutter_tts: ^4.2.5
+  audioplayers: ^6.8.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/branding/
+
+  fonts:
+    - family: DM Sans
+      fonts:
+        - asset: assets/fonts/DMSans.ttf
+    - family: Noto Sans Bengali
+      fonts:
+        - asset: assets/fonts/NotoSansBengali.ttf
+    - family: Anton
+      fonts:
+        - asset: assets/fonts/Anton-Regular.ttf
+    - family: DM Mono
+      fonts:
+        - asset: assets/fonts/DMMono-Regular.ttf
+        - asset: assets/fonts/DMMono-Medium.ttf
+          weight: 500
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: assets/branding/logo.png
+  min_sdk_android: 21

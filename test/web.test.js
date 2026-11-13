@@ -36,6 +36,34 @@ test('a browser at / gets the app page', { skip: !hasBuild && 'no public/ build'
   assert.match(html, /flutter_bootstrap\.js/);
 });
 
+test('the site is installable: manifest, service worker, install script', { skip: !hasBuild && 'no public/ build' }, async () => {
+  const m = await (await fetch(`${base}/manifest.json`)).json();
+  assert.strictEqual(m.display, 'standalone');
+  assert.strictEqual(m.start_url, '/');
+  assert.strictEqual(m.scope, '/');
+  assert.ok(m.icons.some((i) => i.sizes === '192x192' && i.purpose === 'any'));
+  assert.ok(m.icons.some((i) => i.sizes === '512x512' && i.purpose === 'any'));
+  assert.ok(m.icons.some((i) => i.purpose === 'maskable'));
+  for (const f of [...m.icons, ...(m.screenshots || [])]) {
+    const r = await fetch(`${base}${f.src}`);
+    assert.strictEqual(r.status, 200, f.src);
+    assert.strictEqual(r.headers.get('content-type'), 'image/png', f.src);
+  }
+  const sw = await fetch(`${base}/sw.js`);
+  assert.strictEqual(sw.status, 200);
+  assert.match(sw.headers.get('content-type'), /javascript/);
+  assert.strictEqual(sw.headers.get('cache-control'), 'no-cache');
+  const swText = await sw.text();
+  // The worker must leave the API alone.
+  for (const p of ["'/v1/'", "'/admin/'", "'/health'", "'authorization'"]) assert.ok(swText.includes(p), p);
+  const html = await (await fetch(`${base}/`, { headers: { Accept: 'text/html' } })).text();
+  assert.match(html, /<link rel="manifest" href="manifest.json">/);
+  assert.match(html, /<script src="pwa.js" defer><\/script>/);
+  assert.strictEqual((await fetch(`${base}/pwa.js`)).status, 200);
+  const boot = await (await fetch(`${base}/flutter_bootstrap.js`)).text();
+  assert.ok(!boot.includes('serviceWorkerVersion: "'), 'Flutter service worker must not be registered');
+});
+
 test('an API client asking for JSON at / still gets the status', async () => {
   const r = await fetch(`${base}/`, { headers: { Accept: 'application/json' } });
   assert.strictEqual(r.status, 200);

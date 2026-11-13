@@ -17,6 +17,10 @@ cp -r build/web "$out"
 rm -rf "$out"/canvaskit/skwasm* "$out"/canvaskit/wimp* "$out"/canvaskit/webparagraph
 find "$out" -name '*.symbols' -delete
 find "$out" -name '*.map' -delete
+# Flutter's own service worker is not used: web/sw.js (registered by
+# web/pwa.js) handles install and offline, and web/flutter_bootstrap.js loads
+# the app without asking for flutter_service_worker.js.
 rm -f "$out"/flutter_service_worker.js "$out"/.last_build_id
+grep -q 'serviceWorkerVersion: "' "$out"/flutter_bootstrap.js && { echo 'flutter_bootstrap.js still registers the Flutter service worker' >&2; exit 1; }
 
 du -sh "$out"

@@ -286,48 +286,102 @@ class _VoiceModeScreenState extends State<VoiceModeScreen> {
         ),
       );
     }
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: Layout.maxWidthPage),
-      child: AppCard(
-        child: Padding(
-          padding: const EdgeInsets.all(Space.gutter),
+    // Like the chat: what you said sits on the right, the reply on the left.
+    return SizedBox(
+      key: const ValueKey('captions'),
+      width: double.infinity,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: Space.gutter),
+        child: Column(
+          children: [
+            if (you.isNotEmpty)
+              _captionBubble(
+                context,
+                label: context.l10n.youLabel,
+                labelColor: s.onSurfaceVariant,
+                text: you,
+                maxLines: 3,
+                user: true,
+              ),
+            if (you.isNotEmpty && reply.isNotEmpty)
+              const SizedBox(height: Space.ml),
+            if (reply.isNotEmpty)
+              _captionBubble(
+                context,
+                label: context.l10n.assistantLabel,
+                labelColor: s.primary,
+                text: reply,
+                maxLines: 6,
+                user: false,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _captionBubble(
+    BuildContext context, {
+    required String label,
+    required Color labelColor,
+    required String text,
+    required int maxLines,
+    required bool user,
+  }) {
+    final s = Theme.of(context).colorScheme;
+    final t = Theme.of(context).textTheme;
+    const r = Radius.circular(Radii.card);
+    const tail = Radius.circular(6);
+    return Align(
+      alignment: user
+          ? AlignmentDirectional.centerEnd
+          : AlignmentDirectional.centerStart,
+      child: LayoutBuilder(
+        builder: (context, box) => ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: box.maxWidth * ChatLayout.userBubbleMax,
+          ),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: user
+                ? CrossAxisAlignment.end
+                : CrossAxisAlignment.start,
             children: [
-              if (you.isNotEmpty) ...[
-                Text(
-                  context.l10n.youLabel,
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: Text(
+                  label,
                   style: t.labelSmall?.copyWith(
-                    color: s.onSurfaceVariant,
+                    color: labelColor,
                     letterSpacing: tracking(context, 1.2),
                   ),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  you,
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                  style: t.bodyLarge,
+              ),
+              const SizedBox(height: 4),
+              Container(
+                key: ValueKey(user ? 'caption-you' : 'caption-reply'),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
                 ),
-              ],
-              if (you.isNotEmpty && reply.isNotEmpty)
-                const SizedBox(height: Space.ml),
-              if (reply.isNotEmpty) ...[
-                Text(
-                  context.l10n.assistantLabel,
-                  style: t.labelSmall?.copyWith(
-                    color: s.primary,
-                    letterSpacing: tracking(context, 1.2),
+                decoration: BoxDecoration(
+                  color: user ? s.primaryContainer : s.surfaceContainer,
+                  border: user ? null : Border.all(color: s.outlineVariant),
+                  borderRadius: BorderRadiusDirectional.only(
+                    topStart: r,
+                    topEnd: r,
+                    bottomStart: user ? r : tail,
+                    bottomEnd: user ? tail : r,
                   ),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  reply,
-                  maxLines: 6,
+                child: Text(
+                  text,
+                  maxLines: maxLines,
                   overflow: TextOverflow.ellipsis,
-                  style: t.bodyLarge,
+                  style: t.bodyLarge?.copyWith(
+                    color: user ? s.onPrimaryContainer : s.onSurface,
+                  ),
                 ),
-              ],
+              ),
             ],
           ),
         ),

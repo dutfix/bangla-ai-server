@@ -653,10 +653,17 @@ class _Welcome extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: Space.xs),
-                    Text(
-                      l.emptyChatSub,
-                      textAlign: TextAlign.center,
-                      style: t.bodyMedium?.copyWith(color: s.onSurfaceVariant),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: Space.textInset,
+                      ),
+                      child: Text(
+                        l.emptyChatSub,
+                        textAlign: TextAlign.center,
+                        style: t.bodyMedium?.copyWith(
+                          color: s.onSurfaceVariant,
+                        ),
+                      ),
                     ),
                     const SizedBox(height: Space.gutter),
                     if (onVoiceCall != null) ...[

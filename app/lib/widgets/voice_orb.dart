@@ -177,8 +177,8 @@ class _ActionOrbState extends State<ActionOrb> with TickerProviderStateMixin {
                                     Padding(
                                       padding: const EdgeInsets.only(
                                         top: 4,
-                                        left: 18,
-                                        right: 18,
+                                        left: 10,
+                                        right: 10,
                                       ),
                                       // A dark pill keeps the hint readable on
                                       // every colour the orb passes through.
@@ -196,21 +196,25 @@ class _ActionOrbState extends State<ActionOrb> with TickerProviderStateMixin {
                                             horizontal: 10,
                                             vertical: 3,
                                           ),
-                                          child: Text(
-                                            widget.hint,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                              fontFamily: Fonts.body,
-                                              fontFamilyFallback:
-                                                  Fonts.fallback,
-                                              fontSize: 12.5,
-                                              height: 1.45,
-                                              fontWeight: FontWeight.w600,
-                                              fontVariations: [
-                                                FontVariation.weight(600),
-                                              ],
-                                              color: Palette.white,
+                                          // Shrinks a long hint to fit
+                                          // rather than cutting it off.
+                                          child: FittedBox(
+                                            fit: BoxFit.scaleDown,
+                                            child: Text(
+                                              widget.hint,
+                                              maxLines: 1,
+                                              style: const TextStyle(
+                                                fontFamily: Fonts.body,
+                                                fontFamilyFallback:
+                                                    Fonts.fallback,
+                                                fontSize: 12.5,
+                                                height: 1.45,
+                                                fontWeight: FontWeight.w600,
+                                                fontVariations: [
+                                                  FontVariation.weight(600),
+                                                ],
+                                                color: Palette.white,
+                                              ),
                                             ),
                                           ),
                                         ),

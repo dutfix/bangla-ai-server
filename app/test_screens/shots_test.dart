@@ -405,6 +405,74 @@ void main() {
         await settle(tester);
         await shot(tester, '02b_chat_mid_$tag');
 
+        // A normal back-and-forth: yours on the right, replies on the left.
+        c.messages
+          ..clear()
+          ..addAll(
+            lang == 'bn'
+                ? [
+                    ChatMessage(role: Role.user, text: 'হাই!'),
+                    ChatMessage(
+                      role: Role.assistant,
+                      text: 'হ্যালো! কেমন আছেন? কী নিয়ে কথা বলবেন?',
+                    ),
+                    ChatMessage(role: Role.user, text: 'ভালো আছি'),
+                    ChatMessage(
+                      role: Role.assistant,
+                      text: 'শুনে ভালো লাগল। আজ কী করতে চান?',
+                    ),
+                    ChatMessage(
+                      role: Role.user,
+                      text:
+                          'কাল সকালে কক্সবাজার যাচ্ছি। তিন দিনের জন্য কী কী সাথে নেওয়া উচিত, একটা ছোট তালিকা দাও।',
+                    ),
+                    ChatMessage(
+                      role: Role.assistant,
+                      text:
+                          'দারুণ! তিন দিনের জন্য:\n\n- হালকা সুতির জামা আর একটা গরম কাপড়\n- সানস্ক্রিন, সানগ্লাস, টুপি\n- চার্জার আর পাওয়ার ব্যাংক\n- জাতীয় পরিচয়পত্র',
+                    ),
+                    ChatMessage(role: Role.user, text: 'ধন্যবাদ!', viaVoice: true),
+                    ChatMessage(
+                      role: Role.assistant,
+                      text: 'আপনাকেও ধন্যবাদ। ভালো কাটুক!',
+                      viaVoice: true,
+                    ),
+                  ]
+                : [
+                    ChatMessage(role: Role.user, text: 'Hi!'),
+                    ChatMessage(
+                      role: Role.assistant,
+                      text: 'Hello! How are you? What shall we talk about?',
+                    ),
+                    ChatMessage(role: Role.user, text: 'Good, thanks'),
+                    ChatMessage(
+                      role: Role.assistant,
+                      text: 'Glad to hear it. What would you like to do today?',
+                    ),
+                    ChatMessage(
+                      role: Role.user,
+                      text:
+                          "I'm going to Cox's Bazar tomorrow for three days. Give me a short packing list.",
+                    ),
+                    ChatMessage(
+                      role: Role.assistant,
+                      text:
+                          'Great! For three days:\n\n- Light cotton clothes and one warm layer\n- Sunscreen, sunglasses, a hat\n- Charger and power bank\n- Your national ID card',
+                    ),
+                    ChatMessage(role: Role.user, text: 'Thank you!', viaVoice: true),
+                    ChatMessage(
+                      role: Role.assistant,
+                      text: 'You too. Have a great trip!',
+                      viaVoice: true,
+                    ),
+                  ],
+          );
+        sv.chat.open(sv.chats.conversations.last);
+        await settle(tester);
+        sv.chat.open(c);
+        await settle(tester);
+        await shot(tester, '00_conversation_$tag');
+
         // Drawer.
         final menu = find.byTooltip(
           lang == 'bn'

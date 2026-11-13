@@ -675,11 +675,14 @@ class _PinnedPageState extends State<PinnedPage> {
                       Space.pageBottom + MediaQuery.paddingOf(context).bottom,
                 ),
                 children: [
+                  // Each row takes the page's full width, so short text
+                  // and chip rows start at the left edge like the rest
+                  // instead of floating in the middle.
                   for (final c in widget.children)
                     Center(
                       child: ConstrainedBox(
                         constraints: BoxConstraints(maxWidth: widget.maxWidth),
-                        child: c,
+                        child: SizedBox(width: double.infinity, child: c),
                       ),
                     ),
                 ],

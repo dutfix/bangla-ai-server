@@ -2,16 +2,22 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
 
 /// The Bangla AI server on Render. It keeps the OmniRoute key, serves the
 /// app config and passes chats on. Set at build time with
 /// --dart-define=BACKEND_URL=https://... to use another server.
 abstract final class Backend {
-  static const url = String.fromEnvironment(
-    'BACKEND_URL',
-    defaultValue: 'https://bangla-ai-server-1a46.onrender.com',
-  );
+  static const _configured = String.fromEnvironment('BACKEND_URL');
+  static const _render = 'https://bangla-ai-server-1a46.onrender.com';
+
+  /// The web app is served by the Bangla AI server itself, so it talks to
+  /// the address it was opened from (no cross-site requests). The phone app
+  /// uses the Render address.
+  static String get url => _configured.isNotEmpty
+      ? _configured
+      : (kIsWeb ? Uri.base.origin : _render);
 
   /// A free Render service sleeps when idle and needs up to about a minute
   /// to wake, so the first request may wait this long.

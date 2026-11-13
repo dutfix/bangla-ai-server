@@ -53,6 +53,7 @@
   "suggestBrainstormPrompt": "১০টি আইডিয়া দিন: ",
   "howCanIHelp": "কীভাবে সাহায্য করতে পারি?",
   "emptyChatSub": "বার্তা লিখুন, অথবা ভয়েস কলে সরাসরি কথা বলুন।",
+  "emptyChatSubText": "যা জানতে চান লিখুন, বাংলাতেই উত্তর পাবেন।",
   "connectOmniRoute": "OmniRoute সংযুক্ত করুন",
   "connectOmniRouteSub": "চ্যাট শুরু করতে আপনার API কী ও সার্ভার যোগ করুন",
   "startVoiceCall": "ভয়েস কল শুরু করুন",

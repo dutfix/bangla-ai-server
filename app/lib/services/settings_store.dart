@@ -182,7 +182,9 @@ class SettingsStore extends ChangeNotifier {
   double get pitch => remote.pitch;
 
   /// Voice calls and read-aloud are available (the admin turned voice on).
-  bool get voiceEnabled => remote.voiceEnabled;
+  /// Always off in the web version: browsers have no dependable Bangla
+  /// speech, so the call button and read-aloud stay hidden there.
+  bool get voiceEnabled => !kIsWeb && remote.voiceEnabled;
 
   /// The admin's cloud voice speaks (audio from the server), not the phone.
   bool get cloudVoice => remote.voiceMode == 'server';

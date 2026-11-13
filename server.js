@@ -21,6 +21,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const voice = require('./voice');
+const web = require('./web');
 
 const env = process.env;
 const PORT = Number(env.PORT || 10000);
@@ -452,7 +453,7 @@ function bad(message, status = 400) {
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-App-Key',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-App-Key, X-Device',
   'Access-Control-Max-Age': '86400',
 };
 
@@ -1250,7 +1251,9 @@ async function route(req, res) {
       time: new Date().toISOString(),
     });
   }
-  if (p === '/' && m === 'GET') {
+  if (p === '/' && (m === 'GET' || m === 'HEAD')) {
+    // Browsers get the web app; API clients asking for JSON get the status.
+    if (web.wantsPage(req) && web.serveStatic(req, res, '/')) return;
     return send(res, 200, { name: 'Bangla AI server', ok: true });
   }
   if (p === '/v1/config' && m === 'GET') {
@@ -1301,6 +1304,10 @@ async function route(req, res) {
     requireAdmin(req);
     return send(res, 200, { stylePrompt: DEFAULT_STYLE_PROMPT, callPrompt: DEFAULT_CALL_PROMPT });
   }
+
+  // The web app's files (main.dart.js, assets, icons...). API paths never
+  // get here unless they are unknown, and public/ has nothing under them.
+  if (!p.startsWith('/v1/') && !p.startsWith('/admin/') && web.serveStatic(req, res, url.pathname)) return;
 
   throw bad('Not found.', 404);
 }

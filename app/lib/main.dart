@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -10,7 +11,9 @@ import 'widgets/error_boundary.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   installErrorHandling();
-  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  if (!kIsWeb) {
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  }
   final services = await AppServices.create();
   runApp(OmniVoiceApp(services: services));
 }

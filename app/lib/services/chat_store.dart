@@ -5,6 +5,7 @@ import 'dart:isolate';
 
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/chat.dart';
 
@@ -17,7 +18,8 @@ class ChatSearchHit {
   final String? snippet;
 }
 
-/// Saved chats, kept in one JSON file in the app's private storage.
+/// Saved chats, kept in one JSON file in the app's private storage. In the
+/// web version they are kept in the browser's local storage instead.
 class ChatStore extends ChangeNotifier {
   ChatStore({Future<Directory> Function()? directory})
     : _directory = directory ?? getApplicationSupportDirectory;
@@ -45,7 +47,22 @@ class ChatStore extends ChangeNotifier {
     return null;
   }
 
+  /// The browser storage key for saved chats (web only).
+  static const _webKey = 'chats_v1';
+  SharedPreferences? _webPrefs;
+
   Future<void> load() async {
+    if (kIsWeb) {
+      try {
+        _webPrefs = await SharedPreferences.getInstance();
+        final text = _webPrefs!.getString(_webKey);
+        if (text != null && text.isNotEmpty) _readAll(jsonDecode(text));
+      } catch (e) {
+        debugPrint('Could not read saved chats: $e');
+      }
+      notifyListeners();
+      return;
+    }
     final dir = await _directory();
     await dir.create(recursive: true);
     _file = File('${dir.path}/chats.json');
@@ -58,20 +75,24 @@ class ChatStore extends ChangeNotifier {
         final data = text.length > _bigFile
             ? await Isolate.run(() => jsonDecode(text))
             : jsonDecode(text);
-        if (data is Map && data['conversations'] is List) {
-          _all
-            ..clear()
-            ..addAll(
-              (data['conversations'] as List).whereType<Map>().map(
-                (m) => Conversation.fromJson(m.cast<String, dynamic>()),
-              ),
-            );
-        }
+        _readAll(data);
       }
     } catch (e) {
       debugPrint('Could not read saved chats: $e');
     }
     notifyListeners();
+  }
+
+  void _readAll(Object? data) {
+    if (data is Map && data['conversations'] is List) {
+      _all
+        ..clear()
+        ..addAll(
+          (data['conversations'] as List).whereType<Map>().map(
+            (m) => Conversation.fromJson(m.cast<String, dynamic>()),
+          ),
+        );
+    }
   }
 
   Conversation create() {
@@ -153,18 +174,22 @@ class ChatStore extends ChangeNotifier {
   /// Writes to disk now (atomically: temp file, then rename).
   Future<void> flush() async {
     _saveTimer?.cancel();
+    if (kIsWeb) {
+      final prefs = _webPrefs;
+      if (prefs == null) return;
+      try {
+        await prefs.setString(_webKey, jsonEncode(_payload()));
+      } catch (e) {
+        debugPrint('Could not save chats: $e');
+      }
+      return;
+    }
     final file = _file;
     if (file == null) return;
     while (_writing != null) {
       await _writing;
     }
-    final data = {
-      'version': 1,
-      'conversations': _all
-          .where((c) => c.messages.isNotEmpty)
-          .map((c) => c.toJson())
-          .toList(),
-    };
+    final data = _payload();
     final json = _lastSize > _bigFile
         ? await Isolate.run(() => jsonEncode(data))
         : jsonEncode(data);
@@ -182,6 +207,14 @@ class ChatStore extends ChangeNotifier {
       done.complete();
     }
   }
+
+  Map<String, Object> _payload() => {
+    'version': 1,
+    'conversations': _all
+        .where((c) => c.messages.isNotEmpty)
+        .map((c) => c.toJson())
+        .toList(),
+  };
 
   @override
   void dispose() {

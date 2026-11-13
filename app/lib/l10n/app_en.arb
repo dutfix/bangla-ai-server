@@ -81,6 +81,7 @@
   "suggestBrainstormPrompt": "Give me 10 ideas for ",
   "howCanIHelp": "HOW CAN I HELP?",
   "emptyChatSub": "Type a message, or talk hands-free in a voice call.",
+  "emptyChatSubText": "Type anything you want to know.",
   "connectOmniRoute": "Connect OmniRoute",
   "connectOmniRouteSub": "Add your API key and server to start chatting",
   "startVoiceCall": "Start a voice call",

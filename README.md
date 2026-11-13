@@ -24,6 +24,16 @@ it talks to `https://bangla-ai-server-1a46.onrender.com` unless you pass
 | PUT | `/admin/config` | admin | change any field; an empty `apiKey` keeps the old key |
 | POST | `/admin/test` | admin | sends one tiny message to OmniRoute with the stored or draft values |
 
+## Web app
+
+`/` in a browser opens the web version of the Bangla AI app (also at
+https://ai.banglaai.cloud). It is a Flutter web build of `app/` kept in
+`public/` and served by `web.js`; it calls `/v1/chat` on the same address, so
+no CORS is involved. A request to `/` that asks for `application/json` still
+gets `{"name":"Bangla AI server","ok":true}`. Chats are kept in the browser's
+local storage, and voice is hidden on the web. Rebuild after app changes with
+`app/tool/build_web.sh`, then commit `public/` (Render does not run Flutter).
+
 The chat proxy only allows models from the admin's list (anything else uses
 the default model) and puts the admin's system prompt before the app's own
 lines (reply in Bangla, short spoken replies in calls).

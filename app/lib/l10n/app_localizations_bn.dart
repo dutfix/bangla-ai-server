@@ -178,6 +178,9 @@ class AppLocalizationsBn extends AppLocalizations {
   String get emptyChatSub => 'বার্তা লিখুন, অথবা ভয়েস কলে সরাসরি কথা বলুন।';
 
   @override
+  String get emptyChatSubText => 'যা জানতে চান লিখুন, বাংলাতেই উত্তর পাবেন।';
+
+  @override
   String get connectOmniRoute => 'OmniRoute সংযুক্ত করুন';
 
   @override

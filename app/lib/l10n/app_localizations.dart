@@ -416,6 +416,12 @@ abstract class AppLocalizations {
   /// **'Type a message, or talk hands-free in a voice call.'**
   String get emptyChatSub;
 
+  /// No description provided for @emptyChatSubText.
+  ///
+  /// In en, this message translates to:
+  /// **'Type anything you want to know.'**
+  String get emptyChatSubText;
+
   /// No description provided for @connectOmniRoute.
   ///
   /// In en, this message translates to:

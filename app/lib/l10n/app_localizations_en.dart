@@ -179,6 +179,9 @@ class AppLocalizationsEn extends AppLocalizations {
       'Type a message, or talk hands-free in a voice call.';
 
   @override
+  String get emptyChatSubText => 'Type anything you want to know.';
+
+  @override
   String get connectOmniRoute => 'Connect OmniRoute';
 
   @override

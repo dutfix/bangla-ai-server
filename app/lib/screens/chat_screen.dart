@@ -658,7 +658,11 @@ class _Welcome extends StatelessWidget {
                         horizontal: Space.textInset,
                       ),
                       child: Text(
-                        l.emptyChatSub,
+                        // No voice call to point to while voice is off
+                        // (always on the web).
+                        onVoiceCall != null
+                            ? l.emptyChatSub
+                            : l.emptyChatSubText,
                         textAlign: TextAlign.center,
                         style: t.bodyMedium?.copyWith(
                           color: s.onSurfaceVariant,

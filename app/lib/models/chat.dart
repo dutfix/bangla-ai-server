@@ -2,11 +2,12 @@ import 'dart:math';
 
 enum Role { user, assistant }
 
+// 0x7fffffff, not 1 << 32: on the web that shift is 0 and nextInt throws.
 final _rand = Random();
 
 String newId() =>
     '${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}'
-    '${_rand.nextInt(1 << 32).toRadixString(36)}';
+    '${_rand.nextInt(0x7fffffff).toRadixString(36)}';
 
 /// One message in a conversation.
 class ChatMessage {

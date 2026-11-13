@@ -482,20 +482,51 @@ class SaveBar extends StatelessWidget {
       borderRadius: BorderRadius.circular(Radii.tile),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
-        child: Row(
-          children: [
-            Expanded(child: Text('Unsaved changes', style: t.titleSmall)),
-            TextButton(
-              onPressed: saving ? null : onDiscard,
-              child: const Text('Undo'),
-            ),
-            const SizedBox(width: 4),
-            PrimaryButton(
-              label: saving ? 'Saving...' : 'Save for all users',
-              icon: HeroIcons.check,
-              onPressed: saving ? null : onSave,
-            ),
-          ],
+        child: LayoutBuilder(
+          builder: (context, box) {
+            final label = Text(
+              'Unsaved changes',
+              style: t.titleSmall,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            );
+            final buttons = [
+              TextButton(
+                onPressed: saving ? null : onDiscard,
+                child: const Text('Undo'),
+              ),
+              const SizedBox(width: 4),
+              PrimaryButton(
+                label: saving ? 'Saving...' : 'Save for all users',
+                icon: HeroIcons.check,
+                onPressed: saving ? null : onSave,
+              ),
+            ];
+            // On narrow phones the label gets its own line, so it never
+            // breaks in the middle of a word.
+            if (box.maxWidth < 440) {
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4, bottom: 4),
+                    child: label,
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: buttons,
+                  ),
+                ],
+              );
+            }
+            return Row(
+              children: [
+                Expanded(child: label),
+                ...buttons,
+              ],
+            );
+          },
         ),
       ),
     );
